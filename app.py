@@ -19,6 +19,7 @@ def create_app():
 
     init_db(app)
 
+    # ✅ All blueprint registrations belong here, inside the function
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(chat_bp, url_prefix='/chat')
     app.register_blueprint(stripe_bp, url_prefix='/stripe')
