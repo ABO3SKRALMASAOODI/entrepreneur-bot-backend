@@ -4,6 +4,7 @@ from routes.auth import auth_bp
 from routes.chat import chat_bp
 from routes.stripe_webhook import stripe_bp
 from routes.stripe_checkout import checkout_bp
+from routes.verify_email import verify_bp   # <-- new
 from models import init_db
 import os
 from dotenv import load_dotenv
@@ -19,11 +20,12 @@ def create_app():
 
     init_db(app)
 
-    # ✅ All blueprint registrations belong here, inside the function
+    # ✅ Register all blueprints here
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(chat_bp, url_prefix='/chat')
     app.register_blueprint(stripe_bp, url_prefix='/stripe')
     app.register_blueprint(checkout_bp, url_prefix='/stripe')
+    app.register_blueprint(verify_bp, url_prefix='/verify')  # <-- new
 
     return app
 

@@ -5,6 +5,8 @@ def init_db(app):
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
+
+        # Create users table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -13,6 +15,15 @@ def init_db(app):
                 is_subscribed INTEGER DEFAULT 0
             )
         ''')
+
+        # Create email verification codes table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS email_codes (
+                email TEXT PRIMARY KEY,
+                code TEXT
+            )
+        ''')
+
         db.commit()
         db.close()
 
