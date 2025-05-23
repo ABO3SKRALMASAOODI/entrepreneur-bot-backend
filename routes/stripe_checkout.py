@@ -65,7 +65,8 @@ def create_checkout_session(user_id):
             success_url=f"{YOUR_DOMAIN}/chat",
             cancel_url=f"{YOUR_DOMAIN}/subscribe"
         )
-      return jsonify({'checkout_url': checkout_session.url})
+              return jsonify({'checkout_url': checkout_session.url})
+
 
 
 
