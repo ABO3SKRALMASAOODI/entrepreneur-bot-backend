@@ -7,7 +7,8 @@ import sqlite3
 
 checkout_bp = Blueprint('checkout', __name__)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-YOUR_DOMAIN = "http://localhost:3000"  # Change this to your frontend domain in prod
+YOUR_DOMAIN = "https://entrepreneur-bot-frontend.vercel.app"
+
 
 def get_db():
     conn = sqlite3.connect(current_app.config['DATABASE'])
@@ -30,7 +31,8 @@ def token_required(f):
         return f(user_id, *args, **kwargs)
     return decorated
 
-@checkout_bp.route('/checkout-session', methods=['POST'])
+@checkout_bp.route('/create-checkout-session', methods=['POST'])
+
 @token_required
 def create_checkout_session(user_id):
     conn = get_db()
@@ -63,6 +65,9 @@ def create_checkout_session(user_id):
             success_url=f"{YOUR_DOMAIN}/chat",
             cancel_url=f"{YOUR_DOMAIN}/subscribe"
         )
-        return jsonify({'url': checkout_session.url})
+      return jsonify({'checkout_url': checkout_session.url})
+
+
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
