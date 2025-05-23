@@ -9,7 +9,6 @@ checkout_bp = Blueprint('checkout', __name__)
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 YOUR_DOMAIN = "https://entrepreneur-bot-frontend.vercel.app"
 
-
 def get_db():
     conn = sqlite3.connect(current_app.config['DATABASE'])
     conn.row_factory = sqlite3.Row
@@ -32,7 +31,6 @@ def token_required(f):
     return decorated
 
 @checkout_bp.route('/create-checkout-session', methods=['POST'])
-
 @token_required
 def create_checkout_session(user_id):
     conn = get_db()
@@ -65,10 +63,7 @@ def create_checkout_session(user_id):
             success_url=f"{YOUR_DOMAIN}/chat",
             cancel_url=f"{YOUR_DOMAIN}/subscribe"
         )
-              return jsonify({'checkout_url': checkout_session.url})
-
-
-
+        return jsonify({'checkout_url': checkout_session.url})  # ✅ correct indentation
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
