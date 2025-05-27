@@ -8,13 +8,15 @@ paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 
 @paddle_checkout_bp.route('/paddle/create-checkout-session', methods=['POST'])
 def create_checkout_session():
+    # Paddle Checkout Route - Redeploy Trigger
+    dummy = "trigger redeploy"
+
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
         payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=["HS256"])
         user_id = payload["sub"]
     except Exception:
         return jsonify({"error": "Unauthorized"}), 401
-# Paddle Checkout Route - Redeploy Trigger
 
     headers = {
         "Authorization": f"Bearer {os.getenv('PADDLE_API_KEY')}",
@@ -25,7 +27,7 @@ def create_checkout_session():
         "customer_id": None,
         "items": [
             {
-                "price_id": "pri_01jw8722trngfyz12kq158vrz7",  # replace with your actual price ID
+                "price_id": "pri_01jw8722trngfyz12kq158vrz7",  # Replace with your real price_id
                 "quantity": 1
             }
         ],
@@ -36,7 +38,6 @@ def create_checkout_session():
         "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
     }
 
-    # ✅ These lines must be indented inside the function
     print("[DEBUG] Creating checkout session with:", data)
 
     res = requests.post("https://api.paddle.com/v1/checkout/sessions", headers=headers, json=data)
@@ -44,6 +45,9 @@ def create_checkout_session():
     print("[DEBUG] Paddle response:", res.status_code, res.text)
 
     if res.status_code != 201:
-        return jsonify({"error": "Failed to create checkout session", "detail": res.json()}), 500
+        return jsonify({
+            "error": "Failed to create checkout session",
+            "detail": res.json()
+        }), 500
 
     return jsonify({"checkout_url": res.json()["data"]["url"]})
