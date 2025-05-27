@@ -16,6 +16,7 @@ load_dotenv()
 def create_app():
     app = Flask(__name__)
     CORS(app)
+# Triggering redeploy to Render
 
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "supersecretkey")
     app.config['DATABASE'] = os.path.join(app.root_path, 'database.db')
