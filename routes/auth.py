@@ -1,10 +1,3 @@
-
-
-from flask import Blueprint, request, jsonify, current_app
-import sqlite3
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
-import datetime
 from flask import Blueprint, request, jsonify, current_app
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -54,10 +47,10 @@ def login():
     user = cursor.fetchone()
 
     if user and check_password_hash(user['password'], password):
-       token = jwt.encode({
-    'sub': user['id'],  # change from 'user_id' to 'sub'
-    'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
-}, current_app.config['SECRET_KEY'], algorithm='HS256')
+        token = jwt.encode({
+            'sub': user['id'],  # changed from 'user_id' to 'sub'
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+        }, current_app.config['SECRET_KEY'], algorithm='HS256')
 
         return jsonify({'token': token}), 200
 
