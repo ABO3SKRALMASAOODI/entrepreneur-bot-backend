@@ -4,7 +4,9 @@ from routes.auth import auth_bp
 from routes.chat import chat_bp
 from routes.stripe_webhook import stripe_bp
 from routes.stripe_checkout import checkout_bp
-from routes.verify_email import verify_bp   # <-- new
+from routes.verify_email import verify_bp
+from routes.paddle_webhook import paddle_bp
+from routes.paddle_checkout import paddle_checkout_bp
 from models import init_db
 import os
 from dotenv import load_dotenv
@@ -20,12 +22,14 @@ def create_app():
 
     init_db(app)
 
-    # ✅ Register all blueprints here
+    # ✅ Register all blueprints
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(chat_bp, url_prefix='/chat')
     app.register_blueprint(stripe_bp, url_prefix='/stripe')
     app.register_blueprint(checkout_bp, url_prefix='/stripe')
-    app.register_blueprint(verify_bp, url_prefix='/verify')  # <-- new
+    app.register_blueprint(verify_bp, url_prefix='/verify')
+    app.register_blueprint(paddle_bp, url_prefix='/paddle')
+    app.register_blueprint(paddle_checkout_bp, url_prefix='/paddle')
 
     return app
 
