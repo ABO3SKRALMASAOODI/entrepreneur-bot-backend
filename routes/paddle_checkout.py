@@ -21,10 +21,10 @@ def create_checkout_session():
     }
 
     data = {
-        "customer_id": None,  # Optional: you can create customers first
+        "customer_id": None,
         "items": [
             {
-                "price_id": "pri_01jw8722trngfyz12kq158vrz7",  # your Paddle v2 price ID
+                "price_id": "pri_01jw8722trngfyz12kq158vrz7",  # replace with your actual price ID
                 "quantity": 1
             }
         ],
@@ -35,7 +35,13 @@ def create_checkout_session():
         "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
     }
 
+    # ✅ These lines must be indented inside the function
+    print("[DEBUG] Creating checkout session with:", data)
+
     res = requests.post("https://api.paddle.com/v1/checkout/sessions", headers=headers, json=data)
+
+    print("[DEBUG] Paddle response:", res.status_code, res.text)
+
     if res.status_code != 201:
         return jsonify({"error": "Failed to create checkout session", "detail": res.json()}), 500
 
