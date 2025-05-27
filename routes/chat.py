@@ -5,6 +5,9 @@ import openai
 from functools import wraps
 import os
 
+
+
+
 chat_bp = Blueprint('chat', __name__)
 print("✅ chat.py with GPT-4 is active")
 

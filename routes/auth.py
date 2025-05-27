@@ -54,10 +54,10 @@ def login():
     user = cursor.fetchone()
 
     if user and check_password_hash(user['password'], password):
-        token = jwt.encode({
-            'user_id': user['id'],
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
-        }, current_app.config['SECRET_KEY'], algorithm='HS256')
+       token = jwt.encode({
+    'sub': user['id'],  # change from 'user_id' to 'sub'
+    'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+}, current_app.config['SECRET_KEY'], algorithm='HS256')
 
         return jsonify({'token': token}), 200
 
