@@ -14,6 +14,7 @@ def create_checkout_session():
         user_id = payload["sub"]
     except Exception:
         return jsonify({"error": "Unauthorized"}), 401
+# Paddle Checkout Route - Redeploy Trigger
 
     headers = {
         "Authorization": f"Bearer {os.getenv('PADDLE_API_KEY')}",
