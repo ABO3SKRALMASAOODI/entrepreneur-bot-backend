@@ -13,7 +13,6 @@ def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
 
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-
     try:
         payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
         print("✅ Token decoded:", payload)
@@ -28,24 +27,24 @@ def create_checkout_session():
     }
 
     data = {
-        "customer_id": None,
-        "items": [
-            {
-                "price_id": "pri_01jw8yfkyrrxbr54k86d9dj3ac",
-                "quantity": 1
-            }
-        ],
-        "custom_data": {
-            "user_id": user_id
-        },
-        "success_url": "https://entrepreneur-bot-frontend.vercel.app/chat",
-        "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
-    }
+    "customer_id": None,
+    "items": [
+        {
+            "price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac",  # ✅ Your correct price_id
+            "quantity": 1
+        }
+    ],
+    "custom_data": {
+        "user_id": user_id
+    },
+    "success_url": "https://entrepreneur-bot-frontend.vercel.app/chat",
+    "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
+}
+
 
     print("[DEBUG] Creating checkout session with:", data)
 
     res = requests.post("https://api.paddle.com/checkout/sessions", headers=headers, json=data)
-
     print("[DEBUG] Paddle response:", res.status_code, res.text)
 
     if res.status_code != 201:
