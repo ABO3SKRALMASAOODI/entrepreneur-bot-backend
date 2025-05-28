@@ -1,5 +1,4 @@
 import os
-import requests
 from flask import Blueprint, jsonify, request, current_app
 from models import get_db
 import jwt
@@ -21,33 +20,25 @@ def create_checkout_session():
         print("❌ Token decode error:", str(e))
         return jsonify({"error": "Unauthorized"}), 401
 
-    headers = {
-        "Authorization": f"Bearer {os.getenv('PADDLE_API_KEY')}",
-        "Content-Type": "application/json"
-    }
+    # Get user's email from database
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
 
-    data = {
-        "customer_id": None,
-        "items": [
-            {
-                "price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac",  # ✅ Your correct price_id
-                "quantity": 1
-            }
-        ],
-        "custom_data": {
-            "user_id": user_id
-        },
-        "success_url": "https://entrepreneur-bot-frontend.vercel.app/chat",
-        "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
-    }
+    user_email = user["email"]
 
-    print("[DEBUG] Creating checkout session with:", data)
+    # Build Paddle Classic checkout URL
+    product_id = "pro_01jw8yexc9txg8m9sajthj2ayt"
+    checkout_url = (
+        f"https://checkout.paddle.com/checkout/product/{product_id}"
+        f"?email={user_email}"
+        f"&passthrough={{\"user_id\": {user_id}}}"
+        f"&success=https://entrepreneur-bot-frontend.vercel.app/chat"
+        f"&cancel_url=https://entrepreneur-bot-frontend.vercel.app/cancel"
+    )
 
-    res = requests.post("https://api.paddle.com/v1/checkout/sessions", headers=headers, json=data)
-
-    print("[DEBUG] Paddle response:", res.status_code, res.text)
-
-    if res.status_code != 201:
-        return jsonify({"error": "Failed to create checkout session", "detail": res.json()}), 500
-
-    return jsonify({"checkout_url": res.json()["data"]["url"]})
+    print("✅ Paddle Classic checkout URL generated:", checkout_url)
+    return jsonify({"checkout_url": checkout_url})
