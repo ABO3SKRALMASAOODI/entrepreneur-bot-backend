@@ -1,11 +1,8 @@
 import os
 import requests
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from models import get_db
 import jwt
-from flask import current_app
-
-
 
 print("✅ paddle_checkout.py is being loaded")
 
@@ -16,11 +13,11 @@ def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
 
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
-    try:
-     payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-     print("✅ Token decoded:", payload)
 
-        user_id = payload["sub"]  # ✅ must be 'sub'
+    try:
+        payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+        print("✅ Token decoded:", payload)
+        user_id = payload["sub"]
     except Exception as e:
         print("❌ Token decode error:", str(e))
         return jsonify({"error": "Unauthorized"}), 401
@@ -34,7 +31,7 @@ def create_checkout_session():
         "customer_id": None,
         "items": [
             {
-                "price_id": "pri_01jw8yfkyrrxbr54k86d9dj3ac",  # ✅ use your actual price ID
+                "price_id": "pri_01jw8yfkyrrxbr54k86d9dj3ac",
                 "quantity": 1
             }
         ],
