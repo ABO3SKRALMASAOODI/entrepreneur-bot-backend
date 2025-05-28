@@ -33,6 +33,7 @@ def register():
     conn.commit()
     conn.close()
 
+   
     return jsonify({'message': 'User registered successfully'}), 201
 
 @auth_bp.route('/login', methods=['POST'])
@@ -47,12 +48,13 @@ def login():
     user = cursor.fetchone()
 
     if user and check_password_hash(user['password'], password):
-      token = jwt.encode({
-    'sub': str(user['id']),  # 👈 Make it a string
-    'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
-}, current_app.config['SECRET_KEY'], algorithm='HS256')
+        token = jwt.encode({
+            'sub': str(user['id']),
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
+        }, current_app.config['SECRET_KEY'], algorithm='HS256')
 
 
         return jsonify({'token': token}), 200
+
 
     return jsonify({'error': 'Invalid credentials'}), 401
