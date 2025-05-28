@@ -15,8 +15,9 @@ def create_checkout_session():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
         payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=["HS256"])
-        user_id = payload["sub"]
-    except Exception:
+        user_id = payload["sub"]  # ✅ must be 'sub'
+    except Exception as e:
+        print("❌ Token decode error:", str(e))
         return jsonify({"error": "Unauthorized"}), 401
 
     headers = {
@@ -28,7 +29,7 @@ def create_checkout_session():
         "customer_id": None,
         "items": [
             {
-                "price_id": "pri_01jw8722trngfyz12kq158vrz7",  # your actual price ID
+                "price_id": "pri_01jw8yfkyrrxbr54k86d9dj3ac",  # ✅ use your actual price ID
                 "quantity": 1
             }
         ],
