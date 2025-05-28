@@ -3,6 +3,9 @@ import requests
 from flask import Blueprint, jsonify, request
 from models import get_db
 import jwt
+from flask import current_app
+
+
 
 print("✅ paddle_checkout.py is being loaded")
 
@@ -14,7 +17,9 @@ def create_checkout_session():
 
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
-        payload = jwt.decode(token, os.getenv("SECRET_KEY"), algorithms=["HS256"])
+     payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+     print("✅ Token decoded:", payload)
+
         user_id = payload["sub"]  # ✅ must be 'sub'
     except Exception as e:
         print("❌ Token decode error:", str(e))
