@@ -27,24 +27,23 @@ def create_checkout_session():
     }
 
     data = {
-    "customer_id": None,
-    "items": [
-        {
-            "price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac",  # ✅ Your correct price_id
-            "quantity": 1
-        }
-    ],
-    "custom_data": {
-        "user_id": user_id
-    },
-    "success_url": "https://entrepreneur-bot-frontend.vercel.app/chat",
-    "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
-}
-
+        "customer_id": None,
+        "items": [
+            {
+                "price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac",  # ✅ Your correct price_id
+                "quantity": 1
+            }
+        ],
+        "custom_data": {
+            "user_id": user_id
+        },
+        "success_url": "https://entrepreneur-bot-frontend.vercel.app/chat",
+        "cancel_url": "https://entrepreneur-bot-frontend.vercel.app/cancel"
+    }
 
     print("[DEBUG] Creating checkout session with:", data)
 
-   res = requests.post("https://api.paddle.com/v1/checkout/sessions", headers=headers, json=data)
+    res = requests.post("https://api.paddle.com/v1/checkout/sessions", headers=headers, json=data)
 
     print("[DEBUG] Paddle response:", res.status_code, res.text)
 
