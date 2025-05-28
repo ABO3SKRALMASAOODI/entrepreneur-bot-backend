@@ -44,7 +44,7 @@ def create_checkout_session():
 
     print("[DEBUG] Creating checkout session with:", data)
 
-    res = requests.post("https://api.paddle.com/v1/checkout/sessions", headers=headers, json=data)
+    res = requests.post("https://api.paddle.com/checkout/sessions", headers=headers, json=data)
 
     print("[DEBUG] Paddle response:", res.status_code, res.text)
 
