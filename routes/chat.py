@@ -4,9 +4,7 @@ import sqlite3
 import openai
 from functools import wraps
 import os
-
-
-
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 chat_bp = Blueprint('chat', __name__)
 print("✅ chat.py with GPT-4 is active")
@@ -25,29 +23,27 @@ def token_required(f):
     def decorated(*args, **kwargs):
         token = None
         if 'Authorization' in request.headers:
-            token = request.headers['Authorization'].split(" ")[1]
+            parts = request.headers['Authorization'].split(" ")
+            if len(parts) == 2 and parts[0] == "Bearer":
+                token = parts[1]
+
         if not token:
             return jsonify({'error': 'Token missing'}), 401
 
         try:
             data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = data['user_id']
-        except:
+            user_id = data['sub']  # ✅ Fixed key from 'user_id' to 'sub'
+        except ExpiredSignatureError:
+            return jsonify({'error': 'Token expired'}), 401
+        except InvalidTokenError:
             return jsonify({'error': 'Invalid token'}), 403
 
         return f(user_id, *args, **kwargs)
     return decorated
 
 # ----- Subscription Check -----
-'''def is_user_subscribed(user_id):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT is_subscribed FROM users WHERE id = ?", (user_id,))
-    row = cursor.fetchone()
-    return row and row['is_subscribed'] == 1
-'''
 def is_user_subscribed(user_id):
-    return True  # <-- force allow all users for testing
+    return True  # ✅ Temporarily allow all users for testing
 
 # ----- GPT-4 Chat Endpoint -----
 @chat_bp.route('/', methods=['POST'])
@@ -65,7 +61,6 @@ def chat(user_id):
     try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-
             messages=[
                 {"role": "system", "content": "You are a business mentor for entrepreneurs."},
                 {"role": "user", "content": prompt}
