@@ -1,7 +1,3 @@
-# Only register these routes if run directly
-# (so you can import send_code_to_email elsewhere)
-
-
 import os
 import random
 import sqlite3
@@ -51,7 +47,7 @@ def send_code():
 
     return jsonify({'message': 'Verification code sent'}), 200
 
-    @verify_bp.route('/verify-code', methods=['POST'])
+@verify_bp.route('/verify-code', methods=['POST'])
 def verify_code():
     data = request.get_json()
     email = data.get('email')
@@ -68,7 +64,6 @@ def verify_code():
     if not row or row['code'] != code:
         return jsonify({'error': 'Invalid or expired code'}), 400
 
-    # Mark user as verified
     cursor.execute("UPDATE users SET is_verified = 1 WHERE email = ?", (email,))
     cursor.execute("DELETE FROM email_codes WHERE email = ?", (email,))
     conn.commit()
