@@ -8,13 +8,15 @@ def init_db(app):
 
         # Create users table
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                is_subscribed INTEGER DEFAULT 0
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        is_subscribed INTEGER DEFAULT 0,
+        is_verified INTEGER DEFAULT 0
             )
         ''')
+
 
         # Create email verification codes table
         cursor.execute('''
