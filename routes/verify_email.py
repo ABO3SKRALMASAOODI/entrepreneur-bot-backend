@@ -61,7 +61,10 @@ def verify_code():
     cursor.execute("SELECT code FROM email_codes WHERE email = ?", (email,))
     row = cursor.fetchone()
 
-    if not row or row['code'] != code:
+    if not row:
+        return jsonify({'error': 'No code found for this email'}), 400
+
+    if row['code'] != code:
         return jsonify({'error': 'Invalid or expired code'}), 400
 
     cursor.execute("UPDATE users SET is_verified = 1 WHERE email = ?", (email,))

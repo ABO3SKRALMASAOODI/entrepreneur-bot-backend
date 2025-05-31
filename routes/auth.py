@@ -3,17 +3,15 @@ import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
-
-from .verify_email import send_code_to_email  # Make sure you expose this function
-print("auth.py is being imported")
+from .verify_email import send_code_to_email
 
 auth_bp = Blueprint('auth', __name__)
+print("auth.py is being imported")
 
 def get_db():
     conn = sqlite3.connect(current_app.config['DATABASE'])
     conn.row_factory = sqlite3.Row
     return conn
-
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
@@ -34,12 +32,10 @@ def register():
     cursor.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hashed_pw))
     conn.commit()
 
-    # send verification code
     send_code_to_email(email)
-
     conn.close()
-    return jsonify({'message': 'User registered. Verification code sent.'}), 201
 
+    return jsonify({'message': 'User registered. Verification code sent.'}), 201
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
@@ -52,8 +48,13 @@ def login():
     cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
     user = cursor.fetchone()
 
-    if user and check_password_hash(user['password'], password):
-      if user['is_verified'] == 0:
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+
+    if not check_password_hash(user['password'], password):
+        return jsonify({'error': 'Incorrect password'}), 401
+
+    if user['is_verified'] == 0:
         return jsonify({'error': 'Please verify your email before logging in.'}), 403
 
     token = jwt.encode({
@@ -62,7 +63,3 @@ def login():
     }, current_app.config['SECRET_KEY'], algorithm='HS256')
 
     return jsonify({'token': token}), 200
-
-
-
-    return jsonify({'error': 'Invalid credentials'}), 401
