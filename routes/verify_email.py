@@ -53,6 +53,8 @@ def verify_code():
     email = data.get('email')
     code = data.get('code')
 
+    print("🔍 Received verification attempt for:", email, "with code:", code)
+
     if not email or not code:
         return jsonify({'error': 'Email and code are required'}), 400
 
@@ -60,6 +62,8 @@ def verify_code():
     cursor = conn.cursor()
     cursor.execute("SELECT code FROM email_codes WHERE email = ?", (email,))
     row = cursor.fetchone()
+
+    print("🧠 Code found in DB:", row['code'] if row else "None")
 
     if not row:
         return jsonify({'error': 'No code found for this email'}), 400
@@ -73,6 +77,16 @@ def verify_code():
     conn.close()
 
     return jsonify({'message': 'Email verified successfully'}), 200
+
+@verify_bp.route('/debug/email-codes')
+def debug_email_codes():
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM email_codes")
+    rows = cursor.fetchall()
+    conn.close()
+
+    return jsonify([dict(row) for row in rows])
 
 def send_code_to_email(email):
     code = str(random.randint(100000, 999999))
