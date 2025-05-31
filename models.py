@@ -6,19 +6,24 @@ def init_db(app):
         db = get_db()
         cursor = db.cursor()
 
-        # Create users table
+        # Create users table if it doesn't exist
         cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        is_subscribed INTEGER DEFAULT 0,
-        is_verified INTEGER DEFAULT 0
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                is_subscribed INTEGER DEFAULT 0,
+                is_verified INTEGER DEFAULT 0
             )
         ''')
 
+        # Add is_verified column if missing (for existing tables)
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if 'is_verified' not in columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0")
 
-        # Create email verification codes table
+        # Create email_codes table if it doesn't exist
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_codes (
                 email TEXT PRIMARY KEY,
