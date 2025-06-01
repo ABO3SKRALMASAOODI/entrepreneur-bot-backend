@@ -16,6 +16,13 @@ def init_db(app):
                 is_verified INTEGER DEFAULT 0
             )
         ''')
+        cursor.execute('''
+                CREATE TABLE IF NOT EXISTS password_reset_codes (
+                email TEXT PRIMARY KEY,
+                code TEXT NOT NULL,
+                expires_at DATETIME NOT NULL
+            )
+        ''')
 
         # Add is_verified column if missing (for existing tables)
         cursor.execute("PRAGMA table_info(users)")
