@@ -68,7 +68,7 @@ def login():
     return jsonify({'token': token}), 200
 
 # ✅ Send Reset Code
-@auth_bp.route('/auth/send-reset-code', methods=['POST'])
+@auth_bp.route('/send-reset-code', methods=['POST'])
 def send_reset_code():
     data = request.get_json()
     email = data.get('email')
@@ -97,7 +97,7 @@ def send_reset_code():
     return jsonify({'message': 'Reset code sent to your email'}), 200
 
 # ✅ Verify Reset Code
-@auth_bp.route('/auth/verify-reset-code', methods=['POST'])
+@auth_bp.route('/verify-reset-code', methods=['POST'])
 def verify_reset_code():
     data = request.get_json()
     email = data.get('email')
@@ -123,7 +123,7 @@ def verify_reset_code():
     return jsonify({'message': 'Code verified'}), 200
 
 # ✅ Reset Password
-@auth_bp.route('/auth/reset-password', methods=['POST'])
+@auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     data = request.get_json()
     email = data.get('email')
