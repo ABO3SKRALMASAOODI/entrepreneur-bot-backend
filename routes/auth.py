@@ -114,7 +114,7 @@ def verify_reset_code():
     if not row:
         return jsonify({'error': 'No code found'}), 404
 
-    if row['code'] != code:
+    if str(row['code']) != str(code):
         return jsonify({'error': 'Incorrect code'}), 400
 
     if datetime.datetime.fromisoformat(row['expires_at']) < datetime.datetime.utcnow():
