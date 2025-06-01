@@ -88,15 +88,7 @@ def debug_email_codes():
 
     return jsonify([dict(row) for row in rows])
 
-def send_code_to_email(email):
-    code = str(random.randint(100000, 999999))
-
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO email_codes (email, code) VALUES (?, ?)", (email, code))
-    conn.commit()
-    conn.close()
-
+def send_code_to_email(email, code):
     payload = {
         "sender": {
             "name": os.getenv("FROM_NAME"),
@@ -114,3 +106,4 @@ def send_code_to_email(email):
     }
 
     requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers)
+
