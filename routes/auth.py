@@ -112,15 +112,28 @@ def verify_reset_code():
     row = cursor.fetchone()
 
     if not row:
+        print(f"❌ No reset code found for {email}")
         return jsonify({'error': 'No code found'}), 404
 
-    if str(row['code']) != str(code):
+    # 🔍 Debug: Show both expected and received codes
+    expected_code = str(row['code']).strip()
+    received_code = str(code).strip()
+    print("🔍 Comparing codes:")
+    print("Expected:", expected_code)
+    print("Received:", received_code)
+
+    if expected_code != received_code:
+        print("❌ Mismatch: Incorrect code")
         return jsonify({'error': 'Incorrect code'}), 400
+
+    print("⏰ Expiry time:", row['expires_at'])
+    print("🕒 Now:", datetime.datetime.utcnow().isoformat())
 
     if datetime.datetime.fromisoformat(row['expires_at']) < datetime.datetime.utcnow():
         return jsonify({'error': 'Code expired'}), 400
 
     return jsonify({'message': 'Code verified'}), 200
+
 
 # ✅ Reset Password
 @auth_bp.route('/reset-password', methods=['POST'])
