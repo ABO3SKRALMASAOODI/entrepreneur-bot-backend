@@ -34,7 +34,11 @@ def register():
     cursor.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hashed_pw))
     conn.commit()
 
-    send_code_to_email(email)
+    code = str(random.randint(100000, 999999))
+    cursor.execute("INSERT OR REPLACE INTO email_codes (email, code) VALUES (?, ?)", (email, code))
+    conn.commit()
+
+    send_code_to_email(email, code)
     conn.close()
 
     return jsonify({'message': 'User registered. Verification code sent.'}), 201
@@ -92,7 +96,7 @@ def send_reset_code():
     conn.commit()
     conn.close()
 
-    send_code_to_email(email)
+    send_code_to_email(email, code)
 
     return jsonify({'message': 'Reset code sent to your email'}), 200
 
@@ -115,7 +119,6 @@ def verify_reset_code():
         print(f"❌ No reset code found for {email}")
         return jsonify({'error': 'No code found'}), 404
 
-    # 🔍 Debug: Show both expected and received codes
     expected_code = str(row['code']).strip()
     received_code = str(code).strip()
     print("🔍 Comparing codes:")
@@ -133,7 +136,6 @@ def verify_reset_code():
         return jsonify({'error': 'Code expired'}), 400
 
     return jsonify({'message': 'Code verified'}), 200
-
 
 # ✅ Reset Password
 @auth_bp.route('/reset-password', methods=['POST'])
