@@ -32,7 +32,7 @@ def token_required(f):
 
         try:
             data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
-            user_id = data['sub']  # ✅ Fixed key from 'user_id' to 'sub'
+            user_id = data['sub']
         except ExpiredSignatureError:
             return jsonify({'error': 'Token expired'}), 401
         except InvalidTokenError:
@@ -45,7 +45,7 @@ def token_required(f):
 def is_user_subscribed(user_id):
     return True  # ✅ Temporarily allow all users for testing
 
-# ----- GPT-4 Chat Endpoint -----
+# ----- Basic Chat (No Session) -----
 @chat_bp.route('/', methods=['POST'])
 @token_required
 def chat(user_id):
@@ -71,3 +71,92 @@ def chat(user_id):
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# ----- Start New Chat Session -----
+@chat_bp.route('/start-session', methods=['POST'])
+@token_required
+def start_session(user_id):
+    data = request.get_json()
+    title = data.get("title", "Untitled Session")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO chat_sessions (user_id, title) VALUES (?, ?)",
+        (user_id, title)
+    )
+    conn.commit()
+    session_id = cursor.lastrowid
+
+    return jsonify({"session_id": session_id}), 201
+
+# ----- Send Message in a Session -----
+@chat_bp.route('/send-message', methods=['POST'])
+@token_required
+def send_message(user_id):
+    data = request.get_json()
+    session_id = data.get("session_id")
+    prompt = data.get("prompt")
+
+    if not session_id or not prompt:
+        return jsonify({'error': 'Missing session_id or prompt'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        INSERT INTO chat_messages (session_id, role, content)
+        VALUES (?, ?, ?)
+    ''', (session_id, "user", prompt))
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a business mentor for entrepreneurs."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        reply = response['choices'][0]['message']['content']
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    cursor.execute('''
+        INSERT INTO chat_messages (session_id, role, content)
+        VALUES (?, ?, ?)
+    ''', (session_id, "assistant", reply))
+
+    conn.commit()
+    return jsonify({'reply': reply}), 200
+
+# ----- List All Sessions -----
+@chat_bp.route('/sessions', methods=['GET'])
+@token_required
+def list_sessions(user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, title, created_at FROM chat_sessions WHERE user_id = ? ORDER BY created_at DESC",
+        (user_id,)
+    )
+    sessions = [dict(row) for row in cursor.fetchall()]
+    return jsonify({"sessions": sessions})
+
+# ----- Get Messages in a Session -----
+@chat_bp.route('/messages/<int:session_id>', methods=['GET'])
+@token_required
+def get_session_messages(user_id, session_id):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?", (session_id, user_id))
+    session = cursor.fetchone()
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    cursor.execute(
+        "SELECT role, content, created_at FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC",
+        (session_id,)
+    )
+    messages = [dict(row) for row in cursor.fetchall()]
+    return jsonify({"messages": messages})
