@@ -104,23 +104,54 @@ def send_message(user_id):
     conn = get_db()
     cursor = conn.cursor()
 
+    # Insert user message
     cursor.execute('''
         INSERT INTO chat_messages (session_id, role, content)
         VALUES (?, ?, ?)
     ''', (session_id, "user", prompt))
 
+    # Fetch previous messages in session
+    cursor.execute("SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC", (session_id,))
+    all_messages = cursor.fetchall()
+
+    # Get session info
+    cursor.execute("SELECT title FROM chat_sessions WHERE id = ?", (session_id,))
+    session = cursor.fetchone()
+    title = session["title"] if session else "Untitled Session"
+
+    # 🔍 If it's the 3rd message & still untitled, generate title
+    if len(all_messages) == 3 and title == "Untitled Session":
+        summary_prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in all_messages[:3]])
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": f"Summarize the following chat as a short session title:\n\n{summary_prompt}\n\nTitle:"}],
+                max_tokens=20,
+                temperature=0.5,
+            )
+            new_title = response.choices[0].message["content"].strip()
+            if new_title:
+                cursor.execute("UPDATE chat_sessions SET title = ? WHERE id = ?", (new_title, session_id))
+        except Exception as e:
+            print("Error generating title:", str(e))  # Silent fail
+
+    # GPT response
     try:
-        response = openai.ChatCompletion.create(
+        reply = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a business mentor for entrepreneurs."},
+                *[
+                    {"role": m["role"], "content": m["content"]}
+                    for m in all_messages
+                ],
                 {"role": "user", "content": prompt}
             ]
-        )
-        reply = response['choices'][0]['message']['content']
+        )["choices"][0]["message"]["content"]
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+    # Insert assistant reply
     cursor.execute('''
         INSERT INTO chat_messages (session_id, role, content)
         VALUES (?, ?, ?)
