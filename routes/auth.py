@@ -89,9 +89,9 @@ def login():
     if not check_password_hash(user['password'], password):
         return jsonify({'error': 'Incorrect password'}), 401
 
-   if user['is_verified'] == 0:
+    if user['is_verified'] == 0:
         return jsonify({'error': 'User not found. Please register.'}), 404
-
+  
 
     token = jwt.encode({
         'sub': str(user['id']),
