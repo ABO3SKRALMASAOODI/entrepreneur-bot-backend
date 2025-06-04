@@ -23,10 +23,12 @@ def send_code():
 
     # 🚫 Check if this email exceeded 5 codes in last 24h
     cursor.execute("""
-        SELECT COUNT(*) FROM code_request_logs
-        WHERE email = %s AND sent_at > NOW() - INTERVAL '24 HOURS'
+    SELECT COUNT(*) AS count FROM code_request_logs
+    WHERE email = %s AND sent_at > NOW() - INTERVAL '24 HOURS'
     """, (email,))
-    count_today = cursor.fetchone()[0]
+    count_today = cursor.fetchone()['count']
+
+       
     if count_today >= 5:
         cursor.close()
         conn.close()
