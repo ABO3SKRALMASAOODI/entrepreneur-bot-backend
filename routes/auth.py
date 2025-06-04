@@ -26,14 +26,13 @@ def register():
     conn = get_db()
     cursor = conn.cursor()
 
-    # ❗️Auto-delete expired unverified users (older than 15 min)
+    # Auto-delete unverified users older than 1 minute
     cursor.execute("""
         DELETE FROM users
-        WHERE email = %s AND is_verified = 0 AND created_at < NOW() - INTERVAL '15 minutes'
+        WHERE email = %s AND is_verified = 0 AND created_at < NOW() - INTERVAL '1 minute'
     """, (email,))
     conn.commit()
 
-    # Check again if user exists
     cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
     user = cursor.fetchone()
 
@@ -41,6 +40,7 @@ def register():
 
     if user:
         if user['is_verified'] == 0:
+            # Update password & resend code
             cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_pw, email))
             conn.commit()
 
@@ -62,12 +62,16 @@ def register():
             conn.close()
             return jsonify({'error': 'User already exists'}), 409
 
-    # Insert new user
+    # New user
     cursor.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, hashed_pw))
     conn.commit()
 
     code = str(random.randint(100000, 999999))
-    cursor.execute("INSERT INTO email_codes (email, code) VALUES (%s, %s) ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code", (email, code))
+    cursor.execute("""
+        INSERT INTO email_codes (email, code)
+        VALUES (%s, %s)
+        ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code
+    """, (email, code))
     conn.commit()
 
     send_code_to_email(email, code)
@@ -90,15 +94,11 @@ def login():
     cursor.close()
     conn.close()
 
-    if not user:
-        return jsonify({'error': 'User not found. Please register'}), 404
+    if not user or user['is_verified'] == 0:
+        return jsonify({'error': 'User not found. Please register.'}), 404
 
     if not check_password_hash(user['password'], password):
         return jsonify({'error': 'Incorrect password'}), 401
-
-    if user['is_verified'] == 0:
-        return jsonify({'error': 'User not found. Please register.'}), 404
-  
 
     token = jwt.encode({
         'sub': str(user['id']),
@@ -118,9 +118,10 @@ def send_reset_code():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+    # Only allow verified users to reset password
+    cursor.execute("SELECT * FROM users WHERE email = %s AND is_verified = 1", (email,))
     if not cursor.fetchone():
-        return jsonify({'error': 'User not found'}), 404
+        return jsonify({'error': 'User not found or not verified'}), 404
 
     code = str(random.randint(100000, 999999))
     expires_at = (datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).isoformat()
@@ -135,7 +136,6 @@ def send_reset_code():
     conn.close()
 
     send_code_to_email(email, code)
-
     return jsonify({'message': 'Reset code sent to your email'}), 200
 
 # ✅ Verify Reset Code
@@ -156,21 +156,10 @@ def verify_reset_code():
     conn.close()
 
     if not row:
-        print(f"❌ No reset code found for {email}")
         return jsonify({'error': 'No code found'}), 404
 
-    expected_code = str(row['code']).strip()
-    received_code = str(code).strip()
-    print("🔍 Comparing codes:")
-    print("Expected:", expected_code)
-    print("Received:", received_code)
-
-    if expected_code != received_code:
-        print("❌ Mismatch: Incorrect code")
+    if str(row['code']).strip() != str(code).strip():
         return jsonify({'error': 'Incorrect code'}), 400
-
-    print("⏰ Expiry time:", row['expires_at'])
-    print("🕒 Now:", datetime.datetime.utcnow().isoformat())
 
     if datetime.datetime.fromisoformat(row['expires_at']) < datetime.datetime.utcnow():
         return jsonify({'error': 'Code expired'}), 400
