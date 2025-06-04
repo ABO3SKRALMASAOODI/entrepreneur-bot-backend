@@ -1,15 +1,14 @@
 import os
 import random
-import sqlite3
 import requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from flask import Blueprint, request, jsonify, current_app
 
 verify_bp = Blueprint('verify', __name__)
 
 def get_db():
-    conn = sqlite3.connect(current_app.config['DATABASE'])
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
 
 @verify_bp.route('/send-code', methods=['POST'])
 def send_code():
@@ -21,8 +20,12 @@ def send_code():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO email_codes (email, code) VALUES (?, ?)", (email, code))
+    cursor.execute(
+        "INSERT INTO email_codes (email, code) VALUES (%s, %s) ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code",
+        (email, code)
+    )
     conn.commit()
+    cursor.close()
     conn.close()
 
     payload = {
@@ -60,20 +63,25 @@ def verify_code():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT code FROM email_codes WHERE email = ?", (email,))
+    cursor.execute("SELECT code FROM email_codes WHERE email = %s", (email,))
     row = cursor.fetchone()
 
     print("🧠 Code found in DB:", row['code'] if row else "None")
 
     if not row:
+        cursor.close()
+        conn.close()
         return jsonify({'error': 'No code found for this email'}), 400
 
-    if str(row['code']) != str(code):
+    if str(row['code']).strip() != str(code).strip():
+        cursor.close()
+        conn.close()
         return jsonify({'error': 'Invalid or expired code'}), 400
 
-    cursor.execute("UPDATE users SET is_verified = 1 WHERE email = ?", (email,))
-    cursor.execute("DELETE FROM email_codes WHERE email = ?", (email,))
+    cursor.execute("UPDATE users SET is_verified = 1 WHERE email = %s", (email,))
+    cursor.execute("DELETE FROM email_codes WHERE email = %s", (email,))
     conn.commit()
+    cursor.close()
     conn.close()
 
     return jsonify({'message': 'Email verified successfully'}), 200
@@ -84,9 +92,10 @@ def debug_email_codes():
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM email_codes")
     rows = cursor.fetchall()
+    cursor.close()
     conn.close()
 
-    return jsonify([dict(row) for row in rows])
+    return jsonify(rows)
 
 def send_code_to_email(email, code):
     payload = {
@@ -106,4 +115,3 @@ def send_code_to_email(email, code):
     }
 
     requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers)
-
