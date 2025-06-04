@@ -29,7 +29,7 @@ def register():
     # Auto-delete unverified users older than 1 minute
     cursor.execute("""
         DELETE FROM users
-        WHERE email = %s AND is_verified = 0 AND created_at < NOW() - INTERVAL '1 minute'
+        WHERE email = %s AND is_verified = 0 AND created_at < NOW() - INTERVAL '5 minute'
     """, (email,))
     conn.commit()
 
