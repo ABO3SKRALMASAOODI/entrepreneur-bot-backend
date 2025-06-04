@@ -1,7 +1,5 @@
 import psycopg2
 from flask import current_app, g
-from urllib.parse import urlparse
-import os
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -14,17 +12,19 @@ def init_db(app):
         conn = get_db()
         cursor = conn.cursor()
 
-        # Create users table
+        # Users table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 email TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 is_subscribed INTEGER DEFAULT 0,
-                is_verified INTEGER DEFAULT 0
+                is_verified INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
+        # Password reset codes
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS password_reset_codes (
                 email TEXT PRIMARY KEY,
@@ -33,6 +33,7 @@ def init_db(app):
             )
         ''')
 
+        # Chat sessions
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id SERIAL PRIMARY KEY,
@@ -42,6 +43,7 @@ def init_db(app):
             )
         ''')
 
+        # Chat messages
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id SERIAL PRIMARY KEY,
@@ -52,21 +54,21 @@ def init_db(app):
                 FOREIGN KEY(session_id) REFERENCES chat_sessions(id)
             )
         ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            is_subscribed INTEGER DEFAULT 0,
-            is_verified INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
 
+        # Email verification codes
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_codes (
                 email TEXT PRIMARY KEY,
-                code TEXT
+                code TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Code request log for rate limiting
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS code_request_logs (
+                email TEXT NOT NULL,
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
