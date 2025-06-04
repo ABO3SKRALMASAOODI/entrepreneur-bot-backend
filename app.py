@@ -16,7 +16,8 @@ def create_app():
     CORS(app)
 
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "supersecretkey")
-    app.config['DATABASE'] = os.path.join(app.root_path, 'database.db')
+    app.config['DATABASE_URL'] = os.getenv("DATABASE_URL")
+
 
     init_db(app)
 

@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
@@ -10,9 +11,7 @@ auth_bp = Blueprint('auth', __name__)
 print("auth.py is being imported")
 
 def get_db():
-    conn = sqlite3.connect(current_app.config['DATABASE'])
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
 
 # ✅ Register Route
 @auth_bp.route('/register', methods=['POST'])
@@ -26,19 +25,20 @@ def register():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
     if cursor.fetchone():
         return jsonify({'error': 'User already exists'}), 409
 
     hashed_pw = generate_password_hash(password)
-    cursor.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hashed_pw))
+    cursor.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, hashed_pw))
     conn.commit()
 
     code = str(random.randint(100000, 999999))
-    cursor.execute("INSERT OR REPLACE INTO email_codes (email, code) VALUES (?, ?)", (email, code))
+    cursor.execute("INSERT INTO email_codes (email, code) VALUES (%s, %s) ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code", (email, code))
     conn.commit()
 
     send_code_to_email(email, code)
+    cursor.close()
     conn.close()
 
     return jsonify({'message': 'User registered. Verification code sent.'}), 201
@@ -52,8 +52,10 @@ def login():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
     user = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
     if not user:
         return jsonify({'error': 'User not found'}), 404
@@ -82,18 +84,20 @@ def send_reset_code():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE email = ?", (email,))
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
     if not cursor.fetchone():
         return jsonify({'error': 'User not found'}), 404
 
     code = str(random.randint(100000, 999999))
     expires_at = (datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).isoformat()
 
-    cursor.execute(
-        "INSERT OR REPLACE INTO password_reset_codes (email, code, expires_at) VALUES (?, ?, ?)",
-        (email, code, expires_at)
-    )
+    cursor.execute("""
+        INSERT INTO password_reset_codes (email, code, expires_at)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at
+    """, (email, code, expires_at))
     conn.commit()
+    cursor.close()
     conn.close()
 
     send_code_to_email(email, code)
@@ -112,8 +116,10 @@ def verify_reset_code():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT code, expires_at FROM password_reset_codes WHERE email = ?", (email,))
+    cursor.execute("SELECT code, expires_at FROM password_reset_codes WHERE email = %s", (email,))
     row = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
     if not row:
         print(f"❌ No reset code found for {email}")
@@ -151,9 +157,10 @@ def reset_password():
 
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET password = ? WHERE email = ?", (hashed_pw, email))
-    cursor.execute("DELETE FROM password_reset_codes WHERE email = ?", (email,))
+    cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_pw, email))
+    cursor.execute("DELETE FROM password_reset_codes WHERE email = %s", (email,))
     conn.commit()
+    cursor.close()
     conn.close()
 
     return jsonify({'message': 'Password updated successfully'}), 200
