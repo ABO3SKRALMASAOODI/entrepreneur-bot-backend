@@ -52,6 +52,16 @@ def init_db(app):
                 FOREIGN KEY(session_id) REFERENCES chat_sessions(id)
             )
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            is_subscribed INTEGER DEFAULT 0,
+            is_verified INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_codes (

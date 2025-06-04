@@ -25,6 +25,15 @@ def register():
 
     conn = get_db()
     cursor = conn.cursor()
+
+    # ❗️Auto-delete expired unverified users (older than 15 min)
+    cursor.execute("""
+        DELETE FROM users
+        WHERE email = %s AND is_verified = 0 AND created_at < NOW() - INTERVAL '15 minutes'
+    """, (email,))
+    conn.commit()
+
+    # Check again if user exists
     cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
     user = cursor.fetchone()
 
@@ -32,11 +41,9 @@ def register():
 
     if user:
         if user['is_verified'] == 0:
-            # Update password in case user is stuck and wants to change
             cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_pw, email))
             conn.commit()
 
-            # Regenerate verification code
             code = str(random.randint(100000, 999999))
             cursor.execute("""
                 INSERT INTO email_codes (email, code)
@@ -55,7 +62,7 @@ def register():
             conn.close()
             return jsonify({'error': 'User already exists'}), 409
 
-    # New user, insert into table
+    # Insert new user
     cursor.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, hashed_pw))
     conn.commit()
 
