@@ -26,10 +26,36 @@ def register():
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-    if cursor.fetchone():
-        return jsonify({'error': 'User already exists'}), 409
+    user = cursor.fetchone()
 
     hashed_pw = generate_password_hash(password)
+
+    if user:
+        if user['is_verified'] == 0:
+            # Update password in case user is stuck and wants to change
+            cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_pw, email))
+            conn.commit()
+
+            # Regenerate verification code
+            code = str(random.randint(100000, 999999))
+            cursor.execute("""
+                INSERT INTO email_codes (email, code)
+                VALUES (%s, %s)
+                ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code
+            """, (email, code))
+            conn.commit()
+
+            send_code_to_email(email, code)
+
+            cursor.close()
+            conn.close()
+            return jsonify({'message': 'Verification code re-sent. Please verify your email.'}), 200
+        else:
+            cursor.close()
+            conn.close()
+            return jsonify({'error': 'User already exists'}), 409
+
+    # New user, insert into table
     cursor.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, hashed_pw))
     conn.commit()
 
