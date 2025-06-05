@@ -81,11 +81,12 @@ def start_session(user_id):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s)",
-        (user_id, title)
+    "INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s) RETURNING id",
+    (user_id, title)
     )
+    session_id = cursor.fetchone()['id']
     conn.commit()
-    session_id = cursor.fetchone()['id'] if cursor.description else None
+
 
     return jsonify({"session_id": session_id}), 201
 
