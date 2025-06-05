@@ -1,10 +1,11 @@
 from flask import Blueprint, request, jsonify, current_app
 import jwt
-import sqlite3
 import openai
 from functools import wraps
 import os
 from jwt import ExpiredSignatureError, InvalidTokenError
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 chat_bp = Blueprint('chat', __name__)
 print("✅ chat.py with GPT-4 is active")
@@ -13,9 +14,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ----- Database Access -----
 def get_db():
-    conn = sqlite3.connect(current_app.config['DATABASE'])
-    conn.row_factory = sqlite3.Row
-    return conn
+    return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
 
 # ----- JWT Token Checker -----
 def token_required(f):
@@ -82,11 +81,11 @@ def start_session(user_id):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO chat_sessions (user_id, title) VALUES (?, ?)",
+        "INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s)",
         (user_id, title)
     )
     conn.commit()
-    session_id = cursor.lastrowid
+    session_id = cursor.fetchone()['id'] if cursor.description else None
 
     return jsonify({"session_id": session_id}), 201
 
@@ -107,15 +106,15 @@ def send_message(user_id):
     # Insert user message
     cursor.execute('''
         INSERT INTO chat_messages (session_id, role, content)
-        VALUES (?, ?, ?)
+        VALUES (%s, %s, %s)
     ''', (session_id, "user", prompt))
 
     # Fetch previous messages in session
-    cursor.execute("SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC", (session_id,))
+    cursor.execute("SELECT role, content FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC", (session_id,))
     all_messages = cursor.fetchall()
 
     # Get session info
-    cursor.execute("SELECT title FROM chat_sessions WHERE id = ?", (session_id,))
+    cursor.execute("SELECT title FROM chat_sessions WHERE id = %s", (session_id,))
     session = cursor.fetchone()
     title = session["title"] if session else "Untitled Session"
 
@@ -131,7 +130,7 @@ def send_message(user_id):
             )
             new_title = response.choices[0].message["content"].strip()
             if new_title:
-                cursor.execute("UPDATE chat_sessions SET title = ? WHERE id = ?", (new_title, session_id))
+                cursor.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
         except Exception as e:
             print("Error generating title:", str(e))  # Silent fail
 
@@ -154,7 +153,7 @@ def send_message(user_id):
     # Insert assistant reply
     cursor.execute('''
         INSERT INTO chat_messages (session_id, role, content)
-        VALUES (?, ?, ?)
+        VALUES (%s, %s, %s)
     ''', (session_id, "assistant", reply))
 
     conn.commit()
@@ -167,7 +166,7 @@ def list_sessions(user_id):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, title, created_at FROM chat_sessions WHERE user_id = ? ORDER BY created_at DESC",
+        "SELECT id, title, created_at FROM chat_sessions WHERE user_id = %s ORDER BY created_at DESC",
         (user_id,)
     )
     sessions = [dict(row) for row in cursor.fetchall()]
@@ -180,13 +179,13 @@ def get_session_messages(user_id, session_id):
     conn = get_db()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM chat_sessions WHERE id = ? AND user_id = ?", (session_id, user_id))
+    cursor.execute("SELECT * FROM chat_sessions WHERE id = %s AND user_id = %s", (session_id, user_id))
     session = cursor.fetchone()
     if not session:
         return jsonify({"error": "Session not found"}), 404
 
     cursor.execute(
-        "SELECT role, content, created_at FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC",
+        "SELECT role, content, created_at FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC",
         (session_id,)
     )
     messages = [dict(row) for row in cursor.fetchall()]
