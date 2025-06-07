@@ -5,14 +5,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
 import random
-from google.auth.transport.requests import Request
-from google.oauth2 import id_token
 from .verify_email import send_code_to_email
 
 auth_bp = Blueprint('auth', __name__)
+print("auth.py is being imported")
 
 def get_db():
-    """Function to connect to the PostgreSQL database."""
     return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
 
 # ✅ Register Route
@@ -28,7 +26,7 @@ def register():
     conn = get_db()
     cursor = conn.cursor()
 
-    # Auto-delete unverified users older than 5 minutes
+    # Auto-delete unverified users older than 1 minute
     cursor.execute("""
         DELETE FROM users
         WHERE email = %s AND is_verified = 0 AND created_at < NOW() - INTERVAL '5 minute'
@@ -42,7 +40,7 @@ def register():
 
     if user:
         if user['is_verified'] == 0:
-            # Update password & resend verification code
+            # Update password & resend code
             cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_pw, email))
             conn.commit()
 
@@ -64,7 +62,7 @@ def register():
             conn.close()
             return jsonify({'error': 'User already exists'}), 409
 
-    # New user registration
+    # New user
     cursor.execute("INSERT INTO users (email, password) VALUES (%s, %s)", (email, hashed_pw))
     conn.commit()
 
@@ -109,57 +107,7 @@ def login():
 
     return jsonify({'token': token}), 200
 
-# ✅ Google Login Route
-@auth_bp.route('/google', methods=['POST'])
-def google_login():
-    data = request.get_json()
-    google_token = data.get('token')  # The token will come from the frontend
-
-    if not google_token:
-        return jsonify({'error': 'Google token is required'}), 400
-
-    try:
-        # Verify the token with Google's public keys
-        idinfo = id_token.verify_oauth2_token(google_token, Request(), current_app.config['GOOGLE_CLIENT_ID'])
-        
-        email = idinfo['email']
-        name = idinfo['name']
-        
-        # Check if the user exists in the database
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
-
-        if user:
-            # If the user exists, check if they are verified
-            if user['is_verified'] == 0:
-                cursor.close()
-                conn.close()
-                return jsonify({'error': 'User is not verified. Please check your email for verification.'}), 400
-        else:
-            # If the user doesn't exist, register them
-            cursor.execute("INSERT INTO users (email, password, is_verified) VALUES (%s, %s, %s)", (email, 'default_password', 1))  # Use default password or generate one
-            conn.commit()
-
-        # Generate JWT token for the user
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
-        
-        token = jwt.encode({
-            'sub': str(user['id']),
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=7)
-        }, current_app.config['SECRET_KEY'], algorithm='HS256')
-
-        cursor.close()
-        conn.close()
-
-        return jsonify({'token': token}), 200
-
-    except ValueError:
-        return jsonify({'error': 'Invalid Google token'}), 400
-
-# ✅ Send Reset Code Route
+# ✅ Send Reset Code
 @auth_bp.route('/send-reset-code', methods=['POST'])
 def send_reset_code():
     data = request.get_json()
@@ -190,7 +138,7 @@ def send_reset_code():
     send_code_to_email(email, code)
     return jsonify({'message': 'Reset code sent to your email'}), 200
 
-# ✅ Verify Reset Code Route
+# ✅ Verify Reset Code
 @auth_bp.route('/verify-reset-code', methods=['POST'])
 def verify_reset_code():
     data = request.get_json()
@@ -218,7 +166,7 @@ def verify_reset_code():
 
     return jsonify({'message': 'Code verified'}), 200
 
-# ✅ Reset Password Route
+# ✅ Reset Password
 @auth_bp.route('/reset-password', methods=['POST'])
 def reset_password():
     data = request.get_json()
