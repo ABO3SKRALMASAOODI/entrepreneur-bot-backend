@@ -22,7 +22,7 @@ def create_checkout_session():
     # 2. Fetch user email
     conn = get_db()
     cursor = conn.cursor()
-   cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
+    cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
     user = cursor.fetchone()
     if not user:
         return jsonify({"error": "User not found"}), 404
