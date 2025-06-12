@@ -49,20 +49,20 @@ def create_checkout_session():
         "Content-Type": "application/json"
     }
 
-    # ✅ Print before request
+    # ✅ Print debug info
     print("📦 Payload being sent to Paddle:")
     print(json.dumps(payload, indent=2))
-    print("🔗 Request URL: https://api.paddle.com/checkouts")
+    print("🔗 Request URL: https://api.paddle.com/v1/checkouts")
     print("🔑 Paddle API Key:", os.environ.get("PADDLE_API_KEY")[:10], "********")
 
-    # 4. Make request to Paddle Billing API (Corrected endpoint)
+    # 4. Make request to Paddle Billing API (with /v1/ correctly included)
     try:
-        response = requests.post("https://api.paddle.com/checkouts", json=payload, headers=headers)
+        response = requests.post("https://api.paddle.com/v1/checkouts", json=payload, headers=headers)
         data = response.json()
         print("✅ Paddle response:", data)
 
         if not data.get("data") or "url" not in data["data"]:
-            print("❌ Invalid response structure:", data)
+            print("❌ Full error:", response.status_code, response.text)
             return jsonify({"error": "Failed to create session"}), 500
 
         return jsonify({"checkout_url": data["data"]["url"]})
