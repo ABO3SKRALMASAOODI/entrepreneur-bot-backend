@@ -26,7 +26,9 @@ def create_checkout_session():
     user = cursor.fetchone()
     if not user:
         return jsonify({"error": "User not found"}), 404
-    user_email = user["email"]
+
+    user_email = user[0]  # ✅
+
 
     # 3. Prepare payload for Paddle Billing checkout
     payload = {
