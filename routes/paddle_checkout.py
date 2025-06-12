@@ -40,7 +40,8 @@ def create_checkout_session():
                 "quantity": 1
             }
         ],
-        "return_url": "https://entrepreneur-bot-frontend.vercel.app/chat"
+        "return_url": "https://www.thehustlerbot.com/chat"
+
     }
 
     headers = {
