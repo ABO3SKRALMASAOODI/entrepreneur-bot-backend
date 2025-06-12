@@ -41,7 +41,7 @@ def create_checkout_session():
                 "quantity": 1
             }
         ],
-        "return_url": "https://entrepreneur-bot-frontend.vercel.app"
+        "return_url": "https://entrepreneur-bot-frontend.vercel.app/chat"
     }
 
     headers = {
