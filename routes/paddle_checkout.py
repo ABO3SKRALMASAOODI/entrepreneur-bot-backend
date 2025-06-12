@@ -10,6 +10,7 @@ paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 @paddle_checkout_bp.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
+    print("🧪 USING LIVE ENDPOINT CODE")
 
     # Decode JWT token
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -46,14 +47,14 @@ def create_checkout_session():
     }
 
     print("📦 Payload to Paddle:", json.dumps(payload, indent=2))
-    print("🔗 POST https://api.paddle.com/checkout-sessions")
+    print("🔗 POST https://api.paddle.com/v1/checkout/sessions")  # ✅ Correct URL
     print("🔑 API Key:", os.environ.get("PADDLE_API_KEY")[:10], "…")
 
     try:
         response = requests.post(
-        "https://api.paddle.com/v1/checkout/sessions",
-        json=payload,
-        headers=headers
+            "https://api.paddle.com/v1/checkout/sessions",  # ✅ Live Paddle API endpoint
+            json=payload,
+            headers=headers
         )
 
         data = response.json()
@@ -64,6 +65,7 @@ def create_checkout_session():
             return jsonify({"error": "Failed to create session"}), 500
 
         return jsonify({"checkout_url": data["data"]["url"]})
+
     except Exception as e:
         print("❌ Exception:", str(e))
         return jsonify({"error": "Checkout creation failed"}), 500
