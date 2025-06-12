@@ -47,11 +47,12 @@ def create_checkout_session():
     }
 
     headers = {
-        "Authorization": f"Bearer {os.environ.get('PADDLE_API_KEY')}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Paddle-Version": "2023-10-05"
+    "Authorization": f"Bearer {os.environ.get('PADDLE_API_KEY')}",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Paddle-Version": "2023-10-10"
     }
+
 
     print("📦 Payload being sent to Paddle:")
     print(json.dumps(payload, indent=2))
