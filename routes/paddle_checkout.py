@@ -11,7 +11,6 @@ paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
 
-    # 1. Decode token to get user_id
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
         payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
@@ -20,7 +19,6 @@ def create_checkout_session():
         print("❌ Token decode error:", str(e))
         return jsonify({"error": "Unauthorized"}), 401
 
-    # 2. Fetch user email
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
@@ -30,40 +28,27 @@ def create_checkout_session():
 
     user_email = user[0]
 
-    # 3. Prepare payload for Paddle Billing checkout
     payload = {
-        "customer": {
-            "email": user_email
-        },
-        "items": [
-            {
-                "price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac",
-                "quantity": 1
-            }
-        ],
-        "settings": {
-            "redirect_url": "https://www.thehustlerbot.com/chat"
-        }
+        "customer": {"email": user_email},
+        "items": [{"price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac", "quantity": 1}],
+        "settings": {"redirect_url": "https://www.thehustlerbot.com/chat"}
     }
 
     headers = {
-    "Authorization": f"Bearer {os.environ.get('PADDLE_API_KEY')}",
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "Paddle-Version": "2023-10-10"
+        "Authorization": f"Bearer {os.environ.get('PADDLE_API_KEY')}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Paddle-Version": "1"
     }
 
+    print("📦 Payload to Paddle:", json.dumps(payload, indent=2))
+    print("🔗 POST https://api.paddle.com/checkout-sessions")
+    print("🔑 API Key:", os.environ.get("PADDLE_API_KEY")[:10], "…")
 
-    print("📦 Payload being sent to Paddle:")
-    print(json.dumps(payload, indent=2))
-    print("🔗 Request URL: https://api.paddle.com/checkout-sessions")
-    print("🔑 Paddle API Key:", os.environ.get("PADDLE_API_KEY")[:10], "********")
-
-    # 4. Send request to Paddle
     try:
         response = requests.post("https://api.paddle.com/checkout-sessions", json=payload, headers=headers)
         data = response.json()
-        print("✅ Paddle response:", data)
+        print("✅ Response:", data)
 
         if not data.get("data") or "url" not in data["data"]:
             print("❌ Full error:", response.status_code, response.text)
