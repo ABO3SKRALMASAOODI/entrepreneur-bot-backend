@@ -11,7 +11,6 @@ paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
 
-    # 1. Decode token to get user_id
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
         payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
@@ -20,7 +19,6 @@ def create_checkout_session():
         print("❌ Token decode error:", str(e))
         return jsonify({"error": "Unauthorized"}), 401
 
-    # 2. Fetch user email
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
@@ -30,7 +28,6 @@ def create_checkout_session():
 
     user_email = user[0]
 
-    # 3. Prepare payload for Paddle Billing checkout
     payload = {
         "customer": {
             "email": user_email
@@ -41,7 +38,9 @@ def create_checkout_session():
                 "quantity": 1
             }
         ],
-        "redirect_url": "https://www.thehustlerbot.com/chat"
+        "settings": {
+            "redirect_url": "https://www.thehustlerbot.com/chat"
+        }
     }
 
     headers = {
@@ -54,7 +53,6 @@ def create_checkout_session():
     print("🔗 Request URL: https://api.paddle.com/v1/checkout-sessions")
     print("🔑 Paddle API Key:", os.environ.get("PADDLE_API_KEY")[:10], "********")
 
-    # 4. Make request to Paddle Billing API (correct endpoint)
     try:
         response = requests.post("https://api.paddle.com/v1/checkout-sessions", json=payload, headers=headers)
         data = response.json()
