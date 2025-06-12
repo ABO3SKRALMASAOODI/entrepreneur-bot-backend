@@ -6,6 +6,7 @@ from models import get_db
 import json
 
 paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
+
 @paddle_checkout_bp.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
@@ -41,7 +42,6 @@ def create_checkout_session():
             }
         ],
         "return_url": "https://www.thehustlerbot.com/chat"
-
     }
 
     headers = {
@@ -52,16 +52,17 @@ def create_checkout_session():
     # ✅ Print before request
     print("📦 Payload being sent to Paddle:")
     print(json.dumps(payload, indent=2))
-    print("🔗 Request URL: https://api.paddle.com/v1/checkouts")
+    print("🔗 Request URL: https://api.paddle.com/checkouts")
     print("🔑 Paddle API Key:", os.environ.get("PADDLE_API_KEY")[:10], "********")
 
-    # 4. Make request to Paddle Billing API
+    # 4. Make request to Paddle Billing API (Corrected endpoint)
     try:
-        response = requests.post("https://api.paddle.com/v1/checkouts", json=payload, headers=headers)
+        response = requests.post("https://api.paddle.com/checkouts", json=payload, headers=headers)
         data = response.json()
         print("✅ Paddle response:", data)
 
         if not data.get("data") or "url" not in data["data"]:
+            print("❌ Invalid response structure:", data)
             return jsonify({"error": "Failed to create session"}), 500
 
         return jsonify({"checkout_url": data["data"]["url"]})
