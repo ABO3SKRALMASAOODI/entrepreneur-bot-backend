@@ -51,10 +51,11 @@ def create_checkout_session():
 
     try:
         response = requests.post(
-            "https://api.paddle.com/checkout-sessions",
-            json=payload,
-            headers=headers
+        "https://api.paddle.com/v1/checkout/sessions",
+        json=payload,
+        headers=headers
         )
+
         data = response.json()
         print("✅ Response:", data)
 
