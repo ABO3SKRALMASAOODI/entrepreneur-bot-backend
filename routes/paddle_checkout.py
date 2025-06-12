@@ -34,7 +34,7 @@ def create_checkout_session():
     payload = {
         "customer": {"email": user_email},
         "items": [
-            {"price_id": "pri_01jw8yfkyrxxbr54k86d9dj3ac", "quantity": 1}
+            {"price_id": "pri_01jxj6smtjkfsf22hdr4swyr9j", "quantity": 1}
         ],
         "settings": {"redirect_url": "https://www.thehustlerbot.com/chat"}
     }
