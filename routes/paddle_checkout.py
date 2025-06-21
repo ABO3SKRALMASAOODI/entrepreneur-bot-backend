@@ -10,7 +10,7 @@ paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 @paddle_checkout_bp.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
-    print("🧪 USING LIVE ENDPOINT CODE")
+    print("🧪 USING TRANSACTIONS ENDPOINT (Paddle Billing)")
 
     # Decode JWT token
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -30,13 +30,21 @@ def create_checkout_session():
         return jsonify({"error": "User not found"}), 404
     user_email = user[0]
 
-    # Paddle Billing checkout session payload
+    # Paddle Billing /transactions payload
     payload = {
-        "customer": {"email": user_email},
         "items": [
-            {"price_id": "pri_01jxj6smtjkfsf22hdr4swyr9j", "quantity": 1}
+            {
+                "price_id": "pri_01jxj6smtjkfsf22hdr4swyr9j",
+                "quantity": 1
+            }
         ],
-        "settings": {"redirect_url": "https://www.thehustlerbot.com/chat"}
+        "collection_mode": "automatic",
+        "customer": {
+            "email": user_email
+        },
+        "checkout": {
+            "url": "https://thehustlerbot.com/chat"
+        }
     }
 
     headers = {
@@ -47,24 +55,24 @@ def create_checkout_session():
     }
 
     print("📦 Payload to Paddle:", json.dumps(payload, indent=2))
-    print("🔗 POST https://api.paddle.com/v1/checkout/sessions")  # ✅ Correct URL
-    print("🔑 API Key:", os.environ.get("PADDLE_API_KEY")[:10], "…")
+    print("🔗 POST https://api.paddle.com/transactions")
+    print("🔑 API Key Prefix:", os.environ.get("PADDLE_API_KEY")[:15], "...")
 
     try:
         response = requests.post(
-            "https://api.paddle.com/v1/checkout/sessions",  # ✅ Live Paddle API endpoint
+            "https://api.paddle.com/transactions",
             json=payload,
             headers=headers
         )
 
         data = response.json()
-        print("✅ Response:", data)
+        print("📥 Paddle Response:", json.dumps(data, indent=2))
 
-        if not data.get("data") or "url" not in data["data"]:
+        if response.status_code != 200 or "data" not in data or "checkout" not in data["data"] or "url" not in data["data"]["checkout"]:
             print("❌ Full error:", response.status_code, response.text)
-            return jsonify({"error": "Failed to create session"}), 500
+            return jsonify({"error": "Failed to create Paddle transaction"}), 500
 
-        return jsonify({"checkout_url": data["data"]["url"]})
+        return jsonify({"checkout_url": data["data"]["checkout"]["url"]})
 
     except Exception as e:
         print("❌ Exception:", str(e))
