@@ -48,14 +48,12 @@ def create_checkout_session():
         list_data = list_response.json()
         print("📥 Customer Lookup Response:", json.dumps(list_data, indent=2))
 
-        if "data" in list_data and len(list_data["data"]) > 0:
+        if "data" in list_data and isinstance(list_data["data"], list) and len(list_data["data"]) > 0:
             customer_id = list_data["data"][0]["id"]
             print(f"✅ Existing customer found: {customer_id}")
         else:
             # Step 2: Customer doesn't exist, create them
-            create_payload = {
-                "email": user_email
-            }
+            create_payload = {"email": user_email}
             create_response = requests.post(
                 f"{PADDLE_API_URL}/customers",
                 json=create_payload,
@@ -69,7 +67,7 @@ def create_checkout_session():
             customer_id = create_data["data"]["id"]
             print(f"✅ Customer created: {customer_id}")
 
-        # Step 3: Create transaction
+        # Step 3: Create transaction with correct customer_id
         transaction_payload = {
             "items": [
                 {
