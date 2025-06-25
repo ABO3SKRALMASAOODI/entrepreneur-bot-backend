@@ -92,8 +92,8 @@ def create_checkout_session():
         transaction_data = transaction_response.json()
         print("📥 Transaction Response:", json.dumps(transaction_data, indent=2))
 
-       if transaction_response.status_code not in [200, 201] or "data" not in transaction_data:
-       return jsonify({"error": "Failed to create transaction"}), 500
+        if transaction_response.status_code not in [200, 201] or "data" not in transaction_data:
+        return jsonify({"error": "Failed to create transaction"}), 500
 
         checkout_url = transaction_data["data"]["checkout"]["url"]
         return jsonify({"checkout_url": checkout_url})
