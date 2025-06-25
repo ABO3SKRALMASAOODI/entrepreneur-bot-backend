@@ -7,11 +7,12 @@ import json
 
 paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 
+PADDLE_API_URL = "https://api.paddle.com"
+
 @paddle_checkout_bp.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit")
-    print("🧪 USING TRANSACTIONS ENDPOINT (Paddle Billing)")
-
+    
     # Decode JWT token
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
@@ -30,23 +31,6 @@ def create_checkout_session():
         return jsonify({"error": "User not found"}), 404
     user_email = user[0]
 
-    # Paddle Billing /transactions payload
-    payload = {
-        "items": [
-            {
-                "price_id": "pri_01jxj6smtjkfsf22hdr4swyr9j",
-                "quantity": 1
-            }
-        ],
-        "collection_mode": "automatic",
-        "customer": {
-            "email": user_email
-        },
-        "checkout": {
-            "url": "https://thehustlerbot.com/chat"
-        }
-    }
-
     headers = {
         "Authorization": f"Bearer {os.environ.get('PADDLE_API_KEY')}",
         "Content-Type": "application/json",
@@ -54,25 +38,64 @@ def create_checkout_session():
         "Paddle-Version": "1"
     }
 
-    print("📦 Payload to Paddle:", json.dumps(payload, indent=2))
-    print("🔗 POST https://api.paddle.com/transactions")
-    print("🔑 API Key Prefix:", os.environ.get("PADDLE_API_KEY")[:15], "...")
-
     try:
-        response = requests.post(
-            "https://api.paddle.com/transactions",
-            json=payload,
+        # Step 1: Try to find existing customer by email
+        list_response = requests.get(
+            f"{PADDLE_API_URL}/customers",
+            params={"email": user_email},
             headers=headers
         )
+        list_data = list_response.json()
+        print("📥 Customer Lookup Response:", json.dumps(list_data, indent=2))
 
-        data = response.json()
-        print("📥 Paddle Response:", json.dumps(data, indent=2))
+        if "data" in list_data and len(list_data["data"]) > 0:
+            customer_id = list_data["data"][0]["id"]
+            print(f"✅ Existing customer found: {customer_id}")
+        else:
+            # Step 2: Customer doesn't exist, create them
+            create_payload = {
+                "email": user_email
+            }
+            create_response = requests.post(
+                f"{PADDLE_API_URL}/customers",
+                json=create_payload,
+                headers=headers
+            )
+            create_data = create_response.json()
+            print("📥 Customer Creation Response:", json.dumps(create_data, indent=2))
 
-        if response.status_code != 200 or "data" not in data or "checkout" not in data["data"] or "url" not in data["data"]["checkout"]:
-            print("❌ Full error:", response.status_code, response.text)
-            return jsonify({"error": "Failed to create Paddle transaction"}), 500
+            if "data" not in create_data or "id" not in create_data["data"]:
+                return jsonify({"error": "Failed to create customer"}), 500
+            customer_id = create_data["data"]["id"]
+            print(f"✅ Customer created: {customer_id}")
 
-        return jsonify({"checkout_url": data["data"]["checkout"]["url"]})
+        # Step 3: Create transaction
+        transaction_payload = {
+            "items": [
+                {
+                    "price_id": "pri_01jxj6smtjkfsf22hdr4swyr9j",
+                    "quantity": 1
+                }
+            ],
+            "collection_mode": "automatic",
+            "customer_id": customer_id,
+            "checkout": {
+                "url": "https://thehustlerbot.com/chat"
+            }
+        }
+
+        transaction_response = requests.post(
+            f"{PADDLE_API_URL}/transactions",
+            json=transaction_payload,
+            headers=headers
+        )
+        transaction_data = transaction_response.json()
+        print("📥 Transaction Response:", json.dumps(transaction_data, indent=2))
+
+        if transaction_response.status_code != 200 or "data" not in transaction_data or "checkout" not in transaction_data["data"] or "url" not in transaction_data["data"]["checkout"]:
+            return jsonify({"error": "Failed to create transaction"}), 500
+
+        return jsonify({"checkout_url": transaction_data["data"]["checkout"]["url"]})
 
     except Exception as e:
         print("❌ Exception:", str(e))
