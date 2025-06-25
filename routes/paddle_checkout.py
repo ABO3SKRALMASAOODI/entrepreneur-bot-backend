@@ -8,11 +8,12 @@ import json
 paddle_checkout_bp = Blueprint('paddle_checkout', __name__)
 
 PADDLE_API_URL = "https://api.paddle.com"
+PADDLE_API_KEY = "pdl_live_apikey_01jykydje72nx375m0cvbj4crv_pcjaJX7eSbYP9m4ZgqDc1T_AzN"
 
 @paddle_checkout_bp.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
-    print("✅ create_checkout_session endpoint was hit")
-    
+    print("✅ create_checkout_session endpoint was hit (Paddle Billing)")
+
     # Decode JWT token
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
@@ -32,14 +33,14 @@ def create_checkout_session():
     user_email = user[0]
 
     headers = {
-        "Authorization": f"Bearer {os.environ.get('PADDLE_API_KEY')}",
+        "Authorization": f"Bearer {PADDLE_API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Paddle-Version": "1"
     }
 
     try:
-        # Step 1: Try to find existing customer by email
+        # Step 1: Look up existing customer
         list_response = requests.get(
             f"{PADDLE_API_URL}/customers",
             params={"email": user_email},
@@ -52,7 +53,7 @@ def create_checkout_session():
             customer_id = list_data["data"][0]["id"]
             print(f"✅ Existing customer found: {customer_id}")
         else:
-            # Step 2: Customer doesn't exist, create them
+            # Create customer if not found
             create_payload = {"email": user_email}
             create_response = requests.post(
                 f"{PADDLE_API_URL}/customers",
@@ -64,10 +65,11 @@ def create_checkout_session():
 
             if "data" not in create_data or "id" not in create_data["data"]:
                 return jsonify({"error": "Failed to create customer"}), 500
+
             customer_id = create_data["data"]["id"]
             print(f"✅ Customer created: {customer_id}")
 
-        # Step 3: Create transaction with correct customer_id
+        # Step 2: Create Transaction
         transaction_payload = {
             "items": [
                 {
@@ -90,10 +92,11 @@ def create_checkout_session():
         transaction_data = transaction_response.json()
         print("📥 Transaction Response:", json.dumps(transaction_data, indent=2))
 
-        if transaction_response.status_code != 200 or "data" not in transaction_data or "checkout" not in transaction_data["data"] or "url" not in transaction_data["data"]["checkout"]:
+        if transaction_response.status_code != 200 or "data" not in transaction_data:
             return jsonify({"error": "Failed to create transaction"}), 500
 
-        return jsonify({"checkout_url": transaction_data["data"]["checkout"]["url"]})
+        checkout_url = transaction_data["data"]["checkout"]["url"]
+        return jsonify({"checkout_url": checkout_url})
 
     except Exception as e:
         print("❌ Exception:", str(e))
