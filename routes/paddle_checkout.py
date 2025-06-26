@@ -73,7 +73,8 @@ def create_checkout_session():
                 }
             ],
             "collection_mode": "automatic",
-            "customer_id": customer_id
+            "customer_id": customer_id,
+            "checkout": {}  # Request Paddle to generate hosted checkout
         }
 
         transaction_response = requests.post(
