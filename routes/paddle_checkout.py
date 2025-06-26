@@ -78,10 +78,7 @@ def create_checkout_session():
                 }
             ],
             "collection_mode": "automatic",
-            "customer_id": customer_id,
-            "checkout": {
-                "url": "https://thehustlerbot.com/chat"
-            }
+            "customer_id": customer_id
         }
 
         transaction_response = requests.post(
@@ -95,9 +92,13 @@ def create_checkout_session():
         if transaction_response.status_code not in [200, 201] or "data" not in transaction_data:
             return jsonify({"error": "Failed to create transaction"}), 500
 
-        transaction_id = transaction_data["data"]["id"]
-        return jsonify({"transaction_id": transaction_id})
+        # Look for hosted checkout URL
+        checkout_url = transaction_data["data"].get("hosted_invoice_url") or transaction_data["data"].get("hosted_checkout_url")
 
+        if not checkout_url:
+            return jsonify({"error": "Checkout URL not available"}), 500
+
+        return jsonify({"checkout_url": checkout_url})
 
     except Exception as e:
         print("❌ Exception:", str(e))
