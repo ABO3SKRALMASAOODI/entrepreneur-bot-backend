@@ -14,7 +14,6 @@ PADDLE_API_KEY = "pdl_live_apikey_01jykydje72nx375m0cvbj4crv_pcjaJX7eSbYP9m4ZgqD
 def create_checkout_session():
     print("✅ create_checkout_session endpoint was hit (Paddle Billing)")
 
-    # Decode JWT token
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
         payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
@@ -23,7 +22,6 @@ def create_checkout_session():
         print("❌ Token decode error:", str(e))
         return jsonify({"error": "Unauthorized"}), 401
 
-    # Fetch user email from DB
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT email FROM users WHERE id = %s", (user_id,))
@@ -40,7 +38,6 @@ def create_checkout_session():
     }
 
     try:
-        # Step 1: Look up existing customer
         list_response = requests.get(
             f"{PADDLE_API_URL}/customers",
             params={"email": user_email},
@@ -53,7 +50,6 @@ def create_checkout_session():
             customer_id = list_data["data"][0]["id"]
             print(f"✅ Existing customer found: {customer_id}")
         else:
-            # Create customer if not found
             create_payload = {"email": user_email}
             create_response = requests.post(
                 f"{PADDLE_API_URL}/customers",
@@ -69,7 +65,6 @@ def create_checkout_session():
             customer_id = create_data["data"]["id"]
             print(f"✅ Customer created: {customer_id}")
 
-        # Step 2: Create Transaction
         transaction_payload = {
             "items": [
                 {
@@ -92,8 +87,8 @@ def create_checkout_session():
         if transaction_response.status_code not in [200, 201] or "data" not in transaction_data:
             return jsonify({"error": "Failed to create transaction"}), 500
 
-        # Look for hosted checkout URL
-        checkout_url = transaction_data["data"].get("hosted_invoice_url") or transaction_data["data"].get("hosted_checkout_url")
+        # Extract checkout URL from transaction structure
+        checkout_url = transaction_data["data"].get("checkout", {}).get("url")
 
         if not checkout_url:
             return jsonify({"error": "Checkout URL not available"}), 500
