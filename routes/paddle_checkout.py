@@ -95,8 +95,9 @@ def create_checkout_session():
         if transaction_response.status_code not in [200, 201] or "data" not in transaction_data:
             return jsonify({"error": "Failed to create transaction"}), 500
 
-        checkout_url = transaction_data["data"]["checkout"]["url"]
-        return jsonify({"checkout_url": checkout_url})
+        transaction_id = transaction_data["data"]["id"]
+        return jsonify({"transaction_id": transaction_id})
+
 
     except Exception as e:
         print("❌ Exception:", str(e))
