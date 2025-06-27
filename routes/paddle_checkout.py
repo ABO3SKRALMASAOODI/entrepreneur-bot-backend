@@ -94,25 +94,26 @@ def create_checkout_session():
 
         address_id = res_data["data"]["id"]
 
-    # ✅ Create transaction
-    transaction_payload = {
-        "items": [{"price_id": PRODUCT_PRICE_ID, "quantity": 1}],
-        "collection_mode": "automatic",
-        "customer_id": customer_id,
-        "address_id": address_id,
-       "checkout": {
-       "success_url": "https://thehustlerbot.com/checkout?_ptxn=" + transaction_id,
-       "cancel_url": "https://thehustlerbot.com/cancel"
-       }
-
+   # ✅ Create transaction
+transaction_payload = {
+    "items": [{"price_id": PRODUCT_PRICE_ID, "quantity": 1}],
+    "collection_mode": "automatic",
+    "customer_id": customer_id,
+    "address_id": address_id,
+    "checkout": {
+        "success_url": "https://thehustlerbot.com/success",
+        "cancel_url": "https://thehustlerbot.com/cancel"
     }
+}
 
-    res = requests.post(f"{PADDLE_API_URL}/transactions", json=transaction_payload, headers=headers)
-    print(f"Transaction response: {res.status_code}, {res.text}")
-    transaction_data = res.json()
+res = requests.post(f"{PADDLE_API_URL}/transactions", json=transaction_payload, headers=headers)
+print(f"Transaction response: {res.status_code}, {res.text}")
+transaction_data = res.json()
 
-    if res.status_code >= 400 or "data" not in transaction_data or transaction_data["data"]["status"] != "ready":
-        return jsonify({"error": "Transaction not ready"}), 500
+if res.status_code >= 400 or "data" not in transaction_data or transaction_data["data"]["status"] != "ready":
+    return jsonify({"error": "Transaction not ready"}), 500
 
-    checkout_url = transaction_data["data"]["checkout"]["url"]
-    return jsonify({"checkout_url": checkout_url})
+transaction_id = transaction_data["data"]["id"]
+
+checkout_url = f"https://thehustlerbot.com/checkout?_ptxn={transaction_id}"
+return jsonify({"checkout_url": checkout_url})
