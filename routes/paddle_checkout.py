@@ -16,7 +16,7 @@ def get_db():
     return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
 
 # ✅ Create Checkout Session
-@paddle_checkout_bp.route('/paddle/create-checkout-session', methods=['POST'])
+@paddle_checkout_bp.route('/create-checkout-session', methods=['POST'])
 def create_checkout_session():
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     try:
