@@ -118,7 +118,6 @@ def create_checkout_session():
     transaction_id = transaction_data["data"]["id"]
     checkout_url = transaction_data["data"]["checkout"]["url"]
     print(f"✅ Returning checkout URL: {checkout_url}")
-    return jsonify({
-    "checkout_url": checkout_url,
+   return jsonify({
     "transaction_id": transaction_data["data"]["id"]
 })
