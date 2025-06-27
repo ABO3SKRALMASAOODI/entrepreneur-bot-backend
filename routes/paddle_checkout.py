@@ -25,7 +25,7 @@ def create_checkout_session():
     try:
         payload = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
         print(f"Decoded payload: {payload}")
-        user_id = int(payload["sub"])  # Ensure correct type for DB query
+        user_id = int(payload["sub"])
     except Exception as e:
         print(f"Token decode failed: {e}")
         return jsonify({"error": "Unauthorized"}), 401
@@ -52,7 +52,7 @@ def create_checkout_session():
         "Paddle-Version": "1"
     }
 
-    # ✅ Lookup or create customer
+    # Lookup or create customer
     res = requests.get(f"{PADDLE_API_URL}/customers", params={"email": user_email}, headers=headers)
     print(f"Customer lookup response: {res.status_code}, {res.text}")
     res_data = res.json()
@@ -70,7 +70,7 @@ def create_checkout_session():
 
         customer_id = res_data["data"]["id"]
 
-    # ✅ Lookup addresses
+    # Lookup addresses
     res = requests.get(f"{PADDLE_API_URL}/customers/{customer_id}/addresses", headers=headers)
     print(f"Address lookup response: {res.status_code}, {res.text}")
     res_data = res.json()
@@ -94,26 +94,25 @@ def create_checkout_session():
 
         address_id = res_data["data"]["id"]
 
-   # ✅ Create transaction
-transaction_payload = {
-    "items": [{"price_id": PRODUCT_PRICE_ID, "quantity": 1}],
-    "collection_mode": "automatic",
-    "customer_id": customer_id,
-    "address_id": address_id,
-    "checkout": {
-        "success_url": "https://thehustlerbot.com/success",
-        "cancel_url": "https://thehustlerbot.com/cancel"
+    # Create transaction
+    transaction_payload = {
+        "items": [{"price_id": PRODUCT_PRICE_ID, "quantity": 1}],
+        "collection_mode": "automatic",
+        "customer_id": customer_id,
+        "address_id": address_id,
+        "checkout": {
+            "success_url": "https://thehustlerbot.com/success",
+            "cancel_url": "https://thehustlerbot.com/cancel"
+        }
     }
-}
 
-res = requests.post(f"{PADDLE_API_URL}/transactions", json=transaction_payload, headers=headers)
-print(f"Transaction response: {res.status_code}, {res.text}")
-transaction_data = res.json()
+    res = requests.post(f"{PADDLE_API_URL}/transactions", json=transaction_payload, headers=headers)
+    print(f"Transaction response: {res.status_code}, {res.text}")
+    transaction_data = res.json()
 
-if res.status_code >= 400 or "data" not in transaction_data or transaction_data["data"]["status"] != "ready":
-    return jsonify({"error": "Transaction not ready"}), 500
+    if res.status_code >= 400 or "data" not in transaction_data or transaction_data["data"]["status"] != "ready":
+        return jsonify({"error": "Transaction not ready"}), 500
 
-transaction_id = transaction_data["data"]["id"]
-
-checkout_url = f"https://thehustlerbot.com/checkout?_ptxn={transaction_id}"
-return jsonify({"checkout_url": checkout_url})
+    transaction_id = transaction_data["data"]["id"]
+    checkout_url = f"https://thehustlerbot.com/checkout?_ptxn={transaction_id}"
+    return jsonify({"checkout_url": checkout_url})
