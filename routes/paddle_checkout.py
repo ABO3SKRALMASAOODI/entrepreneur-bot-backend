@@ -112,7 +112,7 @@ def create_checkout_session():
 
     if res.status_code >= 400 or "data" not in transaction_data or transaction_data["data"]["status"] != "ready":
         return jsonify({"error": "Transaction not ready"}), 500
-
-    transaction_id = transaction_data["data"]["id"]
-    checkout_url = f"https://thehustlerbot.com/checkout?_ptxn={transaction_id}"
-    return jsonify({"checkout_url": checkout_url})
+transaction_id = transaction_data["data"]["id"]
+checkout_url = f"https://thehustlerbot.com/checkout?_ptxn={transaction_id}"
+print(f"✅ Returning checkout URL: {checkout_url}")
+return jsonify({"checkout_url": checkout_url})
