@@ -104,9 +104,9 @@ def create_checkout_session():
         "customer_id": customer_id,
         "address_id": address_id,
         "checkout": {
-            "success_url": "https://thehustlerbot.com/success",
-            "cancel_url": "https://thehustlerbot.com/cancel"
+        "url": "overlay"
         }
+
     }
 
     res = requests.post(f"{PADDLE_API_URL}/transactions", json=transaction_payload, headers=headers)
