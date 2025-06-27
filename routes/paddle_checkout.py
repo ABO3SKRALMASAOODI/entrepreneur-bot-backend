@@ -93,6 +93,9 @@ def create_checkout_session():
             return jsonify({"error": "Failed to create address"}), 400
 
         address_id = res_data["data"]["id"]
+    print(f"DEBUG: PRODUCT_PRICE_ID at runtime = {PRODUCT_PRICE_ID}")
+    print(f"DEBUG: PADDLE_API_KEY at runtime = {PADDLE_API_KEY}")
+    print(f"DEBUG: PADDLE_VENDOR_ID at runtime = {PADDLE_VENDOR_ID}")
 
     # Create transaction
     transaction_payload = {
