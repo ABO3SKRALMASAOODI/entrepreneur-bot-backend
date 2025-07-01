@@ -1,9 +1,9 @@
 from flask import Blueprint, request
 import json
 
-paddle_bp = Blueprint('paddle', __name__)
+paddle_webhook = Blueprint('paddle_webhook', __name__)
 
-@paddle_bp.route('/webhook/paddle', methods=['POST'])
+@paddle_webhook.route('/webhook/paddle', methods=['POST'])
 def handle_webhook():
     data = request.form.to_dict()
     alert_name = data.get('alert_name')
