@@ -1,9 +1,9 @@
 from flask import Blueprint, request
 import json
 
-paddle_webhook = Blueprint('paddle_webhook', __name__)
+paddle_bp = Blueprint('paddle', __name__)
 
-@paddle_webhook.route('/webhook/paddle', methods=['POST'])
+@paddle_bp.route('/webhook/paddle', methods=['POST'])
 def handle_webhook():
     data = request.form.to_dict()
     alert_name = data.get('alert_name')
@@ -18,7 +18,6 @@ def handle_webhook():
                 user_id = passthrough
 
         if user_id:
-            # Upgrade the user in your database
             from models import upgrade_user_to_premium
             upgrade_user_to_premium(user_id)
             print(f"User {user_id} upgraded to premium.")
