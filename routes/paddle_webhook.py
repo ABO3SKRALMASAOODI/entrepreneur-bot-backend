@@ -1,36 +1,26 @@
 from flask import Blueprint, request
-import sqlite3
-import os
-from models import get_db
+import json
 
-paddle_bp = Blueprint('paddle', __name__)
+paddle_webhook = Blueprint('paddle_webhook', __name__)
 
-@paddle_bp.route('/paddle/webhook', methods=['POST'])
-def paddle_webhook():
+@paddle_webhook.route('/webhook/paddle', methods=['POST'])
+def handle_webhook():
     data = request.form.to_dict()
-    event_type = data.get('alert_name')
+    alert_name = data.get('alert_name')
 
-    if event_type == 'payment_succeeded':
-        try:
-            passthrough = data.get('passthrough')
-            if not passthrough:
-                return "Missing passthrough", 400
+    if alert_name == 'subscription_created':
+        passthrough = data.get('passthrough')
+        user_id = None
+        if passthrough:
+            try:
+                user_id = json.loads(passthrough).get('user_id')
+            except:
+                user_id = passthrough
 
-            import json
-            user_data = json.loads(passthrough)
-            user_id = user_data.get("user_id")
+        if user_id:
+            # Upgrade the user in your database
+            from models import upgrade_user_to_premium
+            upgrade_user_to_premium(user_id)
+            print(f"User {user_id} upgraded to premium.")
 
-            if not user_id:
-                return "Missing user_id in passthrough", 400
-
-            db = get_db()
-            cursor = db.cursor()
-            cursor.execute("UPDATE users SET is_subscribed = 1 WHERE id = ?", (user_id,))
-            db.commit()
-            return "OK", 200
-
-        except Exception as e:
-            print("[Webhook Error]", str(e))
-            return "Error", 500
-
-    return "Unhandled event", 200
+    return 'OK', 200
