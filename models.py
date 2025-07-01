@@ -6,6 +6,13 @@ def get_db():
     if db is None:
         db = g._database = psycopg2.connect(current_app.config['DATABASE_URL'])
     return db
+def upgrade_user_to_premium(user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET is_subscribed = 1 WHERE id = %s', (user_id,))
+    conn.commit()
+    cursor.close()
+
 
 def init_db(app):
     with app.app_context():

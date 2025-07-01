@@ -9,6 +9,8 @@ from models import init_db
 import os
 from dotenv import load_dotenv
 from routes.paypal import paypal_bp
+from routes.paddle_webhook import paddle_webhook
+
 
 load_dotenv()
 
@@ -28,7 +30,7 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(chat_bp, url_prefix='/chat')
     app.register_blueprint(verify_bp, url_prefix='/verify')
-  
+    app.register_blueprint(paddle_webhook)
     app.register_blueprint(paypal_bp, url_prefix='/paypal')
 
  
