@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
 import requests
 import os
-import json
 import jwt
 
 paddle_bp = Blueprint('paddle', __name__)
@@ -16,10 +15,10 @@ def create_checkout_session():
     try:
         payload = jwt.decode(token, os.environ['SECRET_KEY'], algorithms=["HS256"])
         user_id = payload.get('user_id')
+        user_email = payload.get('email')
     except:
         return jsonify({"error": "Invalid token"}), 401
 
-    # Create checkout link via Paddle API
     url = "https://api.paddle.com/checkout/sessions"
 
     headers = {
@@ -28,16 +27,18 @@ def create_checkout_session():
     }
 
     body = {
-        "customer": { "email": payload.get('email') },
+        "customer": { "email": user_email },
         "items": [
             { "price_id": "pri_01jynfg4knxtn69ncekyxg2cjz", "quantity": 1 }
         ],
-        "custom_data": json.dumps({ "user_id": user_id }),
+        "custom_data": f"user_id={user_id}",
         "redirect_url": "https://thehustlerbot.com/paddle-checkout"
     }
 
     response = requests.post(url, headers=headers, json=body)
+
     if response.status_code != 201:
+        print("Paddle Error Response:", response.text)
         return jsonify({"error": "Failed to create checkout session", "details": response.text}), 500
 
     checkout_data = response.json()
