@@ -25,21 +25,21 @@ def create_checkout_session():
         "Authorization": f"Bearer {os.environ['PADDLE_API_KEY']}",
         "Content-Type": "application/json"
     }
-
     body = {
         "items": [
-            {
-                "price_id": os.environ["PADDLE_PRICE_ID"],
-                "quantity": 1
-            }
-        ],
-        "customer": { "email": user_email },
-        "custom_data": { "user_id": user_id },
-        "collection_mode": "automatic",
-        "checkout": {
-            "success_url": "https://thehustlerbot.com/chat"
+        {
+            "price_id": os.environ["PADDLE_PRICE_ID"],
+            "quantity": 1
         }
+    ],
+    "customer": { "email": user_email },
+    "custom_data": { "user_id": user_id },
+    "collection_mode": "automatic",
+    "checkout": {
+        "success_url": "https://thehustlerbot.com/chat"
     }
+}
+
 
     response = requests.post(url, headers=headers, json=body)
 
