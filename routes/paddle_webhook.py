@@ -10,16 +10,15 @@ def handle_webhook():
 
     if alert_name == 'subscription_created':
         passthrough = data.get('passthrough')
-        user_id = None
         if passthrough:
             try:
-                user_id = json.loads(passthrough).get('user_id')
-            except:
-                user_id = passthrough
-
-        if user_id:
-            from models import upgrade_user_to_premium
-            upgrade_user_to_premium(user_id)
-            print(f"User {user_id} upgraded to premium.")
-
+                parsed_data = json.loads(passthrough)
+                user_id = parsed_data.get('user_id')
+                if user_id:
+                    from models import upgrade_user_to_premium
+                    upgrade_user_to_premium(user_id)
+                    print(f"✅ User {user_id} upgraded to premium.")
+            except Exception as e:
+                print("Failed to parse passthrough:", passthrough)
+    
     return 'OK', 200
