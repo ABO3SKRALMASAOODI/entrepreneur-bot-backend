@@ -26,7 +26,7 @@ def create_checkout_session():
         "Content-Type": "application/json"
     }
 
-    body = {
+   body = {
     "items": [
         {
             "price_id": os.environ["PADDLE_PRICE_ID"],
@@ -38,8 +38,9 @@ def create_checkout_session():
     "collection_mode": "automatic",
     "checkout": {
         "success_url": "https://thehustlerbot.com/chat"
+      }
     }
-}
+
 
 
     response = requests.post(url, headers=headers, json=body)
