@@ -9,6 +9,7 @@ print("PADDLE_MODE from environment:", os.environ.get('PADDLE_MODE'))
 
 @paddle_bp.route('/paddle/create-checkout-session', methods=['POST'])
 def create_checkout_session():
+    # Authenticate the user via token
     auth_header = request.headers.get('Authorization')
     if not auth_header:
         return jsonify({"error": "Missing token"}), 401
@@ -18,9 +19,10 @@ def create_checkout_session():
         payload = jwt.decode(token, os.environ['SECRET_KEY'], algorithms=["HS256"])
         user_id = payload.get('user_id')
         user_email = payload.get('email')
-    except:
+    except Exception as e:
         return jsonify({"error": "Invalid token"}), 401
 
+    # Determine API URL based on environment
     is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
     api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
 
@@ -53,8 +55,5 @@ def create_checkout_session():
 
     data = response.json()
     checkout_url = data["data"]["checkout"]["url"]
-
-    print("Generated Checkout URL:", checkout_url)  # ✅ Add this line
-
 
     return jsonify({ "checkout_url": checkout_url })
