@@ -8,11 +8,25 @@ def get_db():
         db = g._database = psycopg2.connect(current_app.config['DATABASE_URL'])
     return db
 
-def upgrade_user_to_premium(user_id):
-    """Upgrade the user to premium by setting is_subscribed to 1."""
+def upgrade_user_to_premium(user_id, expiry_date=None):
+    """Set user as subscribed and optionally set subscription expiry."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET is_subscribed = 1 WHERE id = %s', (user_id,))
+    if expiry_date:
+        cursor.execute('UPDATE users SET is_subscribed = 1, subscription_expiry = %s WHERE id = %s', (expiry_date, user_id))
+    else:
+        cursor.execute('UPDATE users SET is_subscribed = 1 WHERE id = %s', (user_id,))
+    conn.commit()
+    cursor.close()
+
+def update_user_subscription_status(user_id, is_subscribed, expiry_date=None):
+    """Update user's subscription status and expiry."""
+    conn = get_db()
+    cursor = conn.cursor()
+    if is_subscribed:
+        cursor.execute('UPDATE users SET is_subscribed = 1, subscription_expiry = %s WHERE id = %s', (expiry_date, user_id))
+    else:
+        cursor.execute('UPDATE users SET is_subscribed = 0, subscription_expiry = NULL WHERE id = %s', (user_id,))
     conn.commit()
     cursor.close()
 
@@ -22,19 +36,21 @@ def init_db(app):
         conn = get_db()
         cursor = conn.cursor()
 
-        # Users table
+        # Users table with subscription_expiry column
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
                 email TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
                 is_subscribed INTEGER DEFAULT 0,
+                subscription_expiry TIMESTAMP,
                 is_verified INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
 
-        # Password reset codes
+        # Other tables...
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS password_reset_codes (
                 email TEXT PRIMARY KEY,
@@ -43,7 +59,6 @@ def init_db(app):
             )
         ''')
 
-        # Chat sessions
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id SERIAL PRIMARY KEY,
@@ -53,7 +68,6 @@ def init_db(app):
             )
         ''')
 
-        # Chat messages
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id SERIAL PRIMARY KEY,
@@ -65,7 +79,6 @@ def init_db(app):
             )
         ''')
 
-        # Email verification codes
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS email_codes (
                 email TEXT PRIMARY KEY,
@@ -74,7 +87,6 @@ def init_db(app):
             )
         ''')
 
-        # Code request log for rate limiting
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS code_request_logs (
                 email TEXT NOT NULL,
