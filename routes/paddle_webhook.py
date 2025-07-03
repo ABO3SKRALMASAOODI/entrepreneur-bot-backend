@@ -1,5 +1,6 @@
 from flask import Blueprint, request
 import json
+from models import upgrade_user_to_premium  # ✅ Import it here, don't redefine
 
 paddle_webhook = Blueprint('paddle_webhook', __name__)
 
@@ -15,7 +16,6 @@ def handle_webhook():
                 parsed_data = json.loads(passthrough)
                 user_id = parsed_data.get('user_id')
                 if user_id:
-                    from models import upgrade_user_to_premium
                     upgrade_user_to_premium(user_id)
                     print(f"✅ User {user_id} upgraded to premium.")
             except Exception as e:

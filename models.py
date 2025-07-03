@@ -2,19 +2,22 @@ import psycopg2
 from flask import current_app, g
 
 def get_db():
+    """Get a database connection, reuse if already exists in g."""
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = psycopg2.connect(current_app.config['DATABASE_URL'])
     return db
+
 def upgrade_user_to_premium(user_id):
+    """Upgrade the user to premium by setting is_subscribed to 1."""
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('UPDATE users SET is_subscribed = 1 WHERE id = %s', (user_id,))
     conn.commit()
     cursor.close()
 
-
 def init_db(app):
+    """Initialize all database tables."""
     with app.app_context():
         conn = get_db()
         cursor = conn.cursor()
@@ -81,4 +84,3 @@ def init_db(app):
 
         conn.commit()
         cursor.close()
-        conn.close()

@@ -42,15 +42,28 @@ def token_required(f):
 
 # ----- Subscription Check -----
 def is_user_subscribed(user_id):
-    return True  # ✅ Temporarily allow all users for testing
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_subscribed FROM users WHERE id = %s", (user_id,))
+    row = cursor.fetchone()
+    if row and row["is_subscribed"] == 1:
+        return True
+    return False
+
+# Decorator for routes that require subscription
+def subscription_required(f):
+    @wraps(f)
+    def decorated(user_id, *args, **kwargs):
+        if not is_user_subscribed(user_id):
+            return jsonify({'error': 'Subscription required'}), 402
+        return f(user_id, *args, **kwargs)
+    return decorated
 
 # ----- Basic Chat (No Session) -----
 @chat_bp.route('/', methods=['POST'])
 @token_required
+@subscription_required
 def chat(user_id):
-    if not is_user_subscribed(user_id):
-        return jsonify({'error': 'Subscription required'}), 402
-
     data = request.get_json()
     prompt = data.get('prompt')
 
@@ -74,6 +87,7 @@ def chat(user_id):
 # ----- Start New Chat Session -----
 @chat_bp.route('/start-session', methods=['POST'])
 @token_required
+@subscription_required
 def start_session(user_id):
     data = request.get_json()
     title = data.get("title", "Untitled Session")
@@ -81,18 +95,18 @@ def start_session(user_id):
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute(
-    "INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s) RETURNING id",
-    (user_id, title)
+        "INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s) RETURNING id",
+        (user_id, title)
     )
     session_id = cursor.fetchone()['id']
     conn.commit()
-
 
     return jsonify({"session_id": session_id}), 201
 
 # ----- Send Message in a Session -----
 @chat_bp.route('/send-message', methods=['POST'])
 @token_required
+@subscription_required
 def send_message(user_id):
     data = request.get_json()
     session_id = data.get("session_id")
@@ -110,16 +124,16 @@ def send_message(user_id):
         VALUES (%s, %s, %s)
     ''', (session_id, "user", prompt))
 
-    # Fetch previous messages in session
+    # Fetch previous messages
     cursor.execute("SELECT role, content FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC", (session_id,))
     all_messages = cursor.fetchall()
 
-    # Get session info
+    # Get session title
     cursor.execute("SELECT title FROM chat_sessions WHERE id = %s", (session_id,))
     session = cursor.fetchone()
     title = session["title"] if session else "Untitled Session"
 
-    # 🔍 If it's the 3rd message & still untitled, generate title
+    # Generate session title if 3rd message
     if len(all_messages) == 3 and title == "Untitled Session":
         summary_prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in all_messages[:3]])
         try:
@@ -133,7 +147,7 @@ def send_message(user_id):
             if new_title:
                 cursor.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
         except Exception as e:
-            print("Error generating title:", str(e))  # Silent fail
+            print("Error generating title:", str(e))
 
     # GPT response
     try:
@@ -163,6 +177,7 @@ def send_message(user_id):
 # ----- List All Sessions -----
 @chat_bp.route('/sessions', methods=['GET'])
 @token_required
+@subscription_required
 def list_sessions(user_id):
     conn = get_db()
     cursor = conn.cursor()
@@ -176,6 +191,7 @@ def list_sessions(user_id):
 # ----- Get Messages in a Session -----
 @chat_bp.route('/messages/<int:session_id>', methods=['GET'])
 @token_required
+@subscription_required
 def get_session_messages(user_id, session_id):
     conn = get_db()
     cursor = conn.cursor()
