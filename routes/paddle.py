@@ -20,26 +20,30 @@ def create_checkout_session():
     except Exception as e:
         return jsonify({"error": "Invalid token"}), 401
 
-    url = "https://api.paddle.com/transactions"
+    # Determine API URL based on environment
+    is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
+    api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
+
+    url = f"{api_base}/transactions"
     headers = {
         "Authorization": f"Bearer {os.environ['PADDLE_API_KEY']}",
         "Content-Type": "application/json"
     }
+
     body = {
         "items": [
-        {
-            "price_id": os.environ["PADDLE_PRICE_ID"],
-            "quantity": 1
+            {
+                "price_id": os.environ["PADDLE_PRICE_ID"],
+                "quantity": 1
+            }
+        ],
+        "customer": { "email": user_email },
+        "custom_data": { "user_id": user_id },
+        "collection_mode": "automatic",
+        "checkout": {
+            "success_url": "https://thehustlerbot.com/chat"
         }
-    ],
-    "customer": { "email": user_email },
-    "custom_data": { "user_id": user_id },
-    "collection_mode": "automatic",
-    "checkout": {
-        "success_url": "https://thehustlerbot.com/chat"
     }
-}
-
 
     response = requests.post(url, headers=headers, json=body)
 
