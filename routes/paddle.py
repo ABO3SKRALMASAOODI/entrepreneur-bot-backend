@@ -48,12 +48,15 @@ def create_checkout_session():
     }
 
     response = requests.post(url, headers=headers, json=body)
+    print("Raw Paddle API Response:", response.text)
 
     if response.status_code != 201:
-        print("Paddle Error Response:", response.text)
+        print("Paddle Error:", response.text)
         return jsonify({"error": "Failed to create checkout session", "details": response.text}), 500
 
     data = response.json()
     checkout_url = data["data"]["checkout"]["url"]
 
-    return jsonify({ "checkout_url": checkout_url })
+    print("Generated Checkout URL:", checkout_url)
+
+    return jsonify({"checkout_url": checkout_url})
