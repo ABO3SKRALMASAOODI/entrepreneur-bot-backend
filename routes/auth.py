@@ -1,17 +1,49 @@
 from flask import Blueprint, request, jsonify, current_app
+import jwt
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from werkzeug.security import generate_password_hash, check_password_hash
-import jwt
+from functools import wraps
 import datetime
-import random
-from .verify_email import send_code_to_email
 
 auth_bp = Blueprint('auth', __name__)
-print("auth.py is being imported")
+
+# Your existing get_db function...
 
 def get_db():
     return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
+
+# --- JWT token decorator to extract user_id ---
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header[len('Bearer '):]
+        if not token:
+            return jsonify({'error': 'Token is missing!'}), 401
+        try:
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+            user_id = data['sub']
+        except Exception as e:
+            return jsonify({'error': 'Token is invalid!'}), 401
+        return f(user_id=user_id, *args, **kwargs)
+    return decorated
+
+# --- New route to check subscription ---
+@auth_bp.route('/status/subscription', methods=['GET'])
+@token_required
+def check_subscription(user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_subscribed FROM users WHERE id = %s", (user_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    is_subscribed = bool(row['is_subscribed']) if row else False
+    return jsonify({'is_subscribed': is_subscribed})
 
 # ✅ Register Route
 @auth_bp.route('/register', methods=['POST'])
