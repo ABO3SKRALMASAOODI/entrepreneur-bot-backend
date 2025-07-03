@@ -54,4 +54,7 @@ def create_checkout_session():
     data = response.json()
     checkout_url = data["data"]["checkout"]["url"]
 
+    print("Generated Checkout URL:", checkout_url)  # ✅ Add this line
+
+
     return jsonify({ "checkout_url": checkout_url })
