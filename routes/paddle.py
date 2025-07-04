@@ -17,7 +17,7 @@ def create_checkout_session():
     token = auth_header.split(" ")[1]
     try:
         payload = jwt.decode(token, os.environ['SECRET_KEY'], algorithms=["HS256"])
-        user_id = payload.get('user_id')
+        user_id = payload.get('sub')
         user_email = payload.get('email')
     except Exception as e:
         return jsonify({"error": "Invalid token"}), 401
