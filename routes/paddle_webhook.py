@@ -3,42 +3,42 @@ import json
 from models import update_user_subscription_status
 from datetime import datetime
 
-# ✅ Define Blueprint FIRST
 paddle_webhook = Blueprint('paddle_webhook', __name__)
 
 @paddle_webhook.route('/webhook/paddle', methods=['POST'])
 def handle_webhook():
-    if request.is_json:
-        data = request.get_json()
-    else:
-        data = request.form.to_dict()
+    # Paddle sends webhooks as form-encoded by default
+    data = request.form.to_dict()
 
     alert_name = data.get('alert_name')
-    passthrough_str = data.get('passthrough')
-    custom_data_str = data.get('custom_data')
+    custom_data_str = data.get('custom_data')  # THIS is what you passed in create-checkout-session
+    passthrough_str = data.get('passthrough')  # Optional fallback if you ever use passthrough
 
     user_id = None
 
+    # Try to extract user_id from custom_data
     if custom_data_str:
         try:
             parsed = json.loads(custom_data_str)
             user_id = parsed.get('user_id')
-            print(f"✅ Parsed user_id from custom_data: {user_id}")
+            print(f"✅ Found user_id from custom_data: {user_id}")
         except Exception as e:
             print(f"⚠️ Failed to parse custom_data JSON: {e}")
 
+    # Optional fallback if passthrough is still used in some events
     if not user_id and passthrough_str:
         try:
             parsed = json.loads(passthrough_str)
             user_id = parsed.get('user_id')
-            print(f"✅ Parsed user_id from passthrough: {user_id}")
+            print(f"✅ Found user_id from passthrough: {user_id}")
         except Exception as e:
             print(f"⚠️ Failed to parse passthrough JSON: {e}")
 
     if not user_id:
         print("❌ User ID missing in webhook payload")
-        return 'OK', 200
+        return 'OK', 200  # Always return 200 to Paddle to prevent retry spam
 
+    # Subscription activated
     if alert_name in ('subscription_created', 'subscription_payment_succeeded'):
         next_bill_date_str = data.get('next_bill_date')
         expiry_date = None
@@ -51,6 +51,7 @@ def handle_webhook():
         update_user_subscription_status(user_id, True, expiry_date)
         print(f"✅ User {user_id} subscription activated until {expiry_date}")
 
+    # Subscription deactivated
     elif alert_name in ('subscription_cancelled', 'subscription_payment_failed', 'subscription_payment_refunded'):
         update_user_subscription_status(user_id, False, None)
         print(f"⚠️ User {user_id} subscription deactivated due to {alert_name}")
