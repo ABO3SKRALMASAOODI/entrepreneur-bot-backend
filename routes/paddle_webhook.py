@@ -1,13 +1,10 @@
-from flask import Blueprint, request
-import json
-from models import update_user_subscription_status
-from datetime import datetime
-
-paddle_webhook = Blueprint('paddle_webhook', __name__)
-
 @paddle_webhook.route('/webhook/paddle', methods=['POST'])
 def handle_webhook():
-    data = request.form.to_dict()
+    if request.is_json:
+        data = request.get_json()
+    else:
+        data = request.form.to_dict()
+
     alert_name = data.get('alert_name')
     passthrough_str = data.get('passthrough')
     custom_data_str = data.get('custom_data')  # ✅ Capture custom_data
@@ -23,7 +20,7 @@ def handle_webhook():
         except Exception as e:
             print(f"⚠️ Failed to parse custom_data JSON: {e}")
 
-    # ✅ Fallback to passthrough if custom_data is empty or failed
+    # ✅ Fallback to passthrough if needed
     if not user_id and passthrough_str:
         try:
             parsed = json.loads(passthrough_str)
@@ -49,7 +46,6 @@ def handle_webhook():
         update_user_subscription_status(user_id, True, expiry_date)
         print(f"✅ User {user_id} subscription activated until {expiry_date}")
 
-    # ✅ Handle subscription cancelled or failed
     elif alert_name in ('subscription_cancelled', 'subscription_payment_failed', 'subscription_payment_refunded'):
         update_user_subscription_status(user_id, False, None)
         print(f"⚠️ User {user_id} subscription deactivated due to {alert_name}")
