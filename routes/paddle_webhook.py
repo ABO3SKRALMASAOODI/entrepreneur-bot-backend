@@ -4,10 +4,11 @@ from models import update_user_subscription_status
 from datetime import datetime
 
 paddle_webhook = Blueprint('paddle_webhook', __name__)
-
 @paddle_webhook.route('/webhook/paddle', methods=['POST'])
 def handle_webhook():
     data = request.form.to_dict()
+    
+    print(f"🔔 Full webhook payload: {data}")  # <<< ADD THIS LINE
 
     alert_name = data.get('alert_name')
     custom_data_str = data.get('custom_data')
@@ -15,7 +16,6 @@ def handle_webhook():
 
     user_id = None
 
-    # First, try custom_data (Paddle Billing recommended way)
     if custom_data_str:
         try:
             parsed = json.loads(custom_data_str)
@@ -24,7 +24,6 @@ def handle_webhook():
         except Exception as e:
             print(f"⚠️ Failed to parse custom_data JSON: {e}")
 
-    # Fallback to passthrough if present
     if not user_id and passthrough_str:
         try:
             parsed = json.loads(passthrough_str)
@@ -33,7 +32,6 @@ def handle_webhook():
         except Exception as e:
             print(f"⚠️ Failed to parse passthrough JSON: {e}")
 
-    # If user_id still missing, ignore this webhook
     if not user_id:
         print(f"❌ User ID missing for alert {alert_name}, ignoring.")
         return 'OK', 200
@@ -51,7 +49,6 @@ def handle_webhook():
         update_user_subscription_status(user_id, True, expiry_date)
         print(f"✅ User {user_id} subscription activated until {expiry_date}")
 
-    # Handle subscription deactivation
     elif alert_name in ('subscription_cancelled', 'subscription_payment_failed', 'subscription_payment_refunded'):
         update_user_subscription_status(user_id, False, None)
         print(f"⚠️ User {user_id} subscription deactivated due to {alert_name}")
