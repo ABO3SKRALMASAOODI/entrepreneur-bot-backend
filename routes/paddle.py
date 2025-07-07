@@ -60,3 +60,41 @@ def create_checkout_session():
     print("Generated Checkout URL:", checkout_url)
 
     return jsonify({"checkout_url": checkout_url})
+
+@paddle_bp.route('/paddle/cancel-subscription', methods=['POST'])
+def cancel_subscription():
+    # Authenticate user
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({"error": "Missing token"}), 401
+
+    token = auth_header.split(" ")[1]
+    try:
+        payload = jwt.decode(token, os.environ['SECRET_KEY'], algorithms=["HS256"])
+        user_id = payload.get('sub')
+    except Exception as e:
+        return jsonify({"error": "Invalid token"}), 401
+
+    # Fetch subscription ID from database
+    from models import get_user_subscription_id
+    subscription_id = get_user_subscription_id(user_id)
+    if not subscription_id:
+        return jsonify({"error": "No active subscription found"}), 400
+
+    # Determine API URL
+    is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
+    api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
+
+    url = f"{api_base}/subscriptions/{subscription_id}/cancel"
+    headers = {
+        "Authorization": f"Bearer {os.environ['PADDLE_API_KEY']}",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(url, headers=headers)
+    if response.status_code != 204:
+        print("Paddle Cancel Error:", response.text)
+        return jsonify({"error": "Failed to cancel subscription", "details": response.text}), 500
+
+    print(f"✅ Subscription {subscription_id} scheduled for cancellation at period end")
+    return jsonify({"message": "Subscription will not renew. You'll keep access until the end of the billing period."})

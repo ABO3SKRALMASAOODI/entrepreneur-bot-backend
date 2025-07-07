@@ -18,17 +18,34 @@ def upgrade_user_to_premium(user_id, expiry_date=None):
         cursor.execute('UPDATE users SET is_subscribed = 1 WHERE id = %s', (user_id,))
     conn.commit()
     cursor.close()
-
-def update_user_subscription_status(user_id, is_subscribed, expiry_date=None):
-    """Update user's subscription status and expiry."""
+def update_user_subscription_status(user_id, is_subscribed, expiry_date=None, subscription_id=None):
+    """Update user's subscription status, expiry, and ID."""
     conn = get_db()
     cursor = conn.cursor()
     if is_subscribed:
-        cursor.execute('UPDATE users SET is_subscribed = 1, subscription_expiry = %s WHERE id = %s', (expiry_date, user_id))
+        cursor.execute('''
+            UPDATE users 
+            SET is_subscribed = 1, subscription_expiry = %s, subscription_id = %s 
+            WHERE id = %s
+        ''', (expiry_date, subscription_id, user_id))
     else:
-        cursor.execute('UPDATE users SET is_subscribed = 0, subscription_expiry = NULL WHERE id = %s', (user_id,))
+        cursor.execute('''
+            UPDATE users 
+            SET is_subscribed = 0, subscription_expiry = NULL, subscription_id = NULL 
+            WHERE id = %s
+        ''', (user_id,))
     conn.commit()
     cursor.close()
+
+
+def get_user_subscription_id(user_id):
+    """Get subscription ID for a user."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT subscription_id FROM users WHERE id = %s', (user_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    return result[0] if result else None
 
 def init_db(app):
     """Initialize all database tables."""

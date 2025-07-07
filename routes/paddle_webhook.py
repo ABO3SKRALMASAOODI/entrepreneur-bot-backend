@@ -33,6 +33,8 @@ def handle_webhook():
         print(f"❌ User ID missing for event {event_type}, ignoring.")
         return 'OK', 200
 
+    subscription_id = data.get('id')  # Paddle's subscription ID
+
     # Handle subscription activation
     if event_type in ('transaction.completed', 'transaction.paid', 'subscription.created', 'subscription.updated'):
         expiry_date_str = data.get('next_billed_at')  # Adjust if your webhook provides expiry differently
@@ -44,8 +46,8 @@ def handle_webhook():
             except Exception as e:
                 print(f"⚠️ Failed to parse expiry_date: {e}")
 
-        update_user_subscription_status(user_id, True, expiry_date)
-        print(f"✅ User {user_id} subscription activated until {expiry_date}")
+        update_user_subscription_status(user_id, True, expiry_date, subscription_id)
+        print(f"✅ User {user_id} subscription activated until {expiry_date}, Subscription ID: {subscription_id}")
 
     # Handle subscription deactivation
     elif event_type in ('subscription.canceled', 'subscription.payment_failed', 'subscription.payment_refunded'):
