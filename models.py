@@ -46,14 +46,13 @@ def get_user_subscription_id(user_id):
     result = cursor.fetchone()
     cursor.close()
     return result[0] if result else None
-
 def init_db(app):
     """Initialize all database tables."""
     with app.app_context():
         conn = get_db()
         cursor = conn.cursor()
 
-        # Users table with subscription_expiry column
+        # Users table with subscription_expiry and subscription_id columns
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -61,6 +60,7 @@ def init_db(app):
                 password TEXT NOT NULL,
                 is_subscribed INTEGER DEFAULT 0,
                 subscription_expiry TIMESTAMP,
+                subscription_id TEXT,
                 is_verified INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
