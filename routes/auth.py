@@ -40,13 +40,16 @@ def token_required(f):
 def check_subscription(user_id):
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT is_subscribed FROM users WHERE id = %s", (user_id,))
+    cursor.execute("SELECT is_subscribed, subscription_id FROM users WHERE id = %s", (user_id,))
     row = cursor.fetchone()
     cursor.close()
     conn.close()
 
     is_subscribed = bool(row['is_subscribed']) if row else False
-    return jsonify({'is_subscribed': is_subscribed})
+    subscription_id = row['subscription_id'] if row else None
+
+    return jsonify({'is_subscribed': is_subscribed, 'subscription_id': subscription_id})
+
 
 # ✅ Register Route
 @auth_bp.route('/register', methods=['POST'])

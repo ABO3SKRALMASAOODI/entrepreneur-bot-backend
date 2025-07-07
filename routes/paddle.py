@@ -60,7 +60,6 @@ def create_checkout_session():
     print("Generated Checkout URL:", checkout_url)
 
     return jsonify({"checkout_url": checkout_url})
-
 @paddle_bp.route('/paddle/cancel-subscription', methods=['POST'])
 def cancel_subscription():
     # Authenticate user
@@ -91,8 +90,9 @@ def cancel_subscription():
         "Content-Type": "application/json"
     }
 
-    response = requests.post(url, headers=headers)
-    if response.status_code != 204:
+    # Correct cancellation logic
+    response = requests.post(url, headers=headers, json={"effective_from": "next_billing_period"})
+    if response.status_code not in (200, 204):
         print("Paddle Cancel Error:", response.text)
         return jsonify({"error": "Failed to cancel subscription", "details": response.text}), 500
 
