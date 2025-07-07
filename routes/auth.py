@@ -6,6 +6,7 @@ from functools import wraps
 import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 import random
+from routes.verify_email import send_code_to_email
 
 auth_bp = Blueprint('auth', __name__)
 
