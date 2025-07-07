@@ -54,10 +54,10 @@ def handle_webhook():
         expiry_date = None
 
         if expiry_date_str:
-           try:
-               expiry_date = datetime.fromisoformat(expiry_date_str.replace("Z", "+00:00"))
+            try:
+                expiry_date = datetime.fromisoformat(expiry_date_str.replace("Z", "+00:00"))
             except Exception as e:
-               print(f"⚠️ Failed to parse expiry_date: {e}")
+                print(f"⚠️ Failed to parse expiry_date: {e}")
 
         update_user_subscription_status(user_id, True, expiry_date, subscription_id)
         print(f"✅ User {user_id} subscription activated until {expiry_date}, Subscription ID: {subscription_id}")
