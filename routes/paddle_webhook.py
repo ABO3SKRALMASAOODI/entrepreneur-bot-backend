@@ -12,7 +12,21 @@ def handle_webhook():
     event_type = payload.get('event_type')
     data = payload.get('data', {})
 
-    custom_data = data.get('custom_data', {})
+    # Process only relevant events
+    if event_type not in (
+        'transaction.completed',
+        'transaction.paid',
+        'subscription.created',
+        'subscription.updated',
+        'subscription.canceled',
+        'subscription.payment_failed',
+        'subscription.payment_refunded'
+    ):
+        print(f"ℹ️ Ignoring irrelevant event: {event_type}")
+        return 'OK', 200
+
+    # Extract user_id safely
+    custom_data = data.get('custom_data') or {}
     user_id = custom_data.get('user_id')
 
     if not user_id:
@@ -20,8 +34,8 @@ def handle_webhook():
         return 'OK', 200
 
     # Handle subscription activation
-    if event_type in ('subscription.created', 'transaction.completed'):
-        expiry_date_str = data.get('next_billed_at')  # Adjust field if needed
+    if event_type in ('transaction.completed', 'transaction.paid', 'subscription.created', 'subscription.updated'):
+        expiry_date_str = data.get('next_billed_at')  # Adjust if your webhook provides expiry differently
         expiry_date = None
 
         if expiry_date_str:
@@ -33,6 +47,7 @@ def handle_webhook():
         update_user_subscription_status(user_id, True, expiry_date)
         print(f"✅ User {user_id} subscription activated until {expiry_date}")
 
+    # Handle subscription deactivation
     elif event_type in ('subscription.canceled', 'subscription.payment_failed', 'subscription.payment_refunded'):
         update_user_subscription_status(user_id, False, None)
         print(f"⚠️ User {user_id} subscription deactivated due to {event_type}")
