@@ -1,100 +1,209 @@
-from flask import Blueprint, request, jsonify
-import requests
-import os
+from flask import Blueprint, request, jsonify, current_app
 import jwt
+import openai
+from functools import wraps
+import os
+from jwt import ExpiredSignatureError, InvalidTokenError
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-paddle_bp = Blueprint('paddle', __name__)
-print("PADDLE_API_KEY from environment:", os.environ.get('PADDLE_API_KEY'))
-print("PADDLE_MODE from environment:", os.environ.get('PADDLE_MODE'))
+chat_bp = Blueprint('chat', __name__)
+print("✅ chat.py with GPT-4 is active")
 
-@paddle_bp.route('/paddle/create-checkout-session', methods=['POST'])
-def create_checkout_session():
-    # Authenticate the user via token
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return jsonify({"error": "Missing token"}), 401
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-    token = auth_header.split(" ")[1]
+# ----- Database Access -----
+def get_db():
+    return psycopg2.connect(current_app.config['DATABASE_URL'], cursor_factory=RealDictCursor)
+
+# ----- JWT Token Checker -----
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            parts = request.headers['Authorization'].split(" ")
+            if len(parts) == 2 and parts[0] == "Bearer":
+                token = parts[1]
+
+        if not token:
+            return jsonify({'error': 'Token missing'}), 401
+
+        try:
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+            user_id = data['sub']
+        except ExpiredSignatureError:
+            return jsonify({'error': 'Token expired'}), 401
+        except InvalidTokenError:
+            return jsonify({'error': 'Invalid token'}), 403
+
+        return f(user_id, *args, **kwargs)
+    return decorated
+
+# ----- Subscription Check -----
+def is_user_subscribed(user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT is_subscribed FROM users WHERE id = %s", (user_id,))
+    row = cursor.fetchone()
+    if row and row["is_subscribed"] == 1:
+        return True
+    return False
+
+# Decorator for routes that require subscription
+def subscription_required(f):
+    @wraps(f)
+    def decorated(user_id, *args, **kwargs):
+        if not is_user_subscribed(user_id):
+            return jsonify({'error': 'Subscription required'}), 402
+        return f(user_id, *args, **kwargs)
+    return decorated
+
+# ----- Basic Chat (No Session) -----
+@chat_bp.route('/', methods=['POST'])
+@token_required
+@subscription_required
+def chat(user_id):
+    data = request.get_json()
+    prompt = data.get('prompt')
+
+    if not prompt:
+        return jsonify({'error': 'Prompt is required'}), 400
+
     try:
-        payload = jwt.decode(token, os.environ['SECRET_KEY'], algorithms=["HS256"])
-        user_id = payload.get('sub')
-        user_email = payload.get('email')
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a business mentor for entrepreneurs."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        reply = response['choices'][0]['message']['content']
+        return jsonify({'reply': reply}), 200
+
     except Exception as e:
-        return jsonify({"error": "Invalid token"}), 401
+        return jsonify({'error': str(e)}), 500
 
-    # Determine API URL based on environment
-    is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
-    api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
+# ----- Start New Chat Session -----
+@chat_bp.route('/start-session', methods=['POST'])
+@token_required
+@subscription_required
+def start_session(user_id):
+    data = request.get_json()
+    title = data.get("title", "Untitled Session")
 
-    url = f"{api_base}/transactions"
-    headers = {
-        "Authorization": f"Bearer {os.environ['PADDLE_API_KEY']}",
-        "Content-Type": "application/json"
-    }
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO chat_sessions (user_id, title) VALUES (%s, %s) RETURNING id",
+        (user_id, title)
+    )
+    session_id = cursor.fetchone()['id']
+    conn.commit()
 
-    body = {
-        "items": [
-            {
-                "price_id": os.environ["PADDLE_PRICE_ID"],
-                "quantity": 1
-            }
-        ],
-        "customer": { "email": user_email },
-        "custom_data": { "user_id": user_id },
-        "collection_mode": "automatic",
-        "checkout": {
-            "success_url": "https://thehustlerbot.com/chat"
-        }
-    }
+    return jsonify({"session_id": session_id}), 201
 
-    response = requests.post(url, headers=headers, json=body)
-    print("Raw Paddle API Response:", response.text)
+# ----- Send Message in a Session -----
+@chat_bp.route('/send-message', methods=['POST'])
+@token_required
+@subscription_required
+def send_message(user_id):
+    data = request.get_json()
+    session_id = data.get("session_id")
+    prompt = data.get("prompt")
 
-    if response.status_code != 201:
-        print("Paddle Error:", response.text)
-        return jsonify({"error": "Failed to create checkout session", "details": response.text}), 500
+    if not session_id or not prompt:
+        return jsonify({'error': 'Missing session_id or prompt'}), 400
 
-    data = response.json()
-    checkout_url = data["data"]["checkout"]["url"]
+    conn = get_db()
+    cursor = conn.cursor()
 
-    print("Generated Checkout URL:", checkout_url)
+    # Insert user message
+    cursor.execute('''
+        INSERT INTO chat_messages (session_id, role, content)
+        VALUES (%s, %s, %s)
+    ''', (session_id, "user", prompt))
 
-    return jsonify({"checkout_url": checkout_url})
-@paddle_bp.route('/paddle/cancel-subscription', methods=['POST'])
-def cancel_subscription():
-    # Authenticate user
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return jsonify({"error": "Missing token"}), 401
+    # Fetch previous messages
+    cursor.execute("SELECT role, content FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC", (session_id,))
+    all_messages = cursor.fetchall()
 
-    token = auth_header.split(" ")[1]
+    # Get session title
+    cursor.execute("SELECT title FROM chat_sessions WHERE id = %s", (session_id,))
+    session = cursor.fetchone()
+    title = session["title"] if session else "Untitled Session"
+
+    # Generate session title if 3rd message
+    if len(all_messages) == 3 and title == "Untitled Session":
+        summary_prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in all_messages[:3]])
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": f"Summarize the following chat as a short session title:\n\n{summary_prompt}\n\nTitle:"}],
+                max_tokens=20,
+                temperature=0.5,
+            )
+            new_title = response.choices[0].message["content"].strip()
+            if new_title:
+                cursor.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
+        except Exception as e:
+            print("Error generating title:", str(e))
+
+    # GPT response
     try:
-        payload = jwt.decode(token, os.environ['SECRET_KEY'], algorithms=["HS256"])
-        user_id = payload.get('sub')
+        reply = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a business mentor for entrepreneurs."},
+                *[
+                    {"role": m["role"], "content": m["content"]}
+                    for m in all_messages
+                ],
+                {"role": "user", "content": prompt}
+            ]
+        )["choices"][0]["message"]["content"]
     except Exception as e:
-        return jsonify({"error": "Invalid token"}), 401
+        return jsonify({'error': str(e)}), 500
 
-    # Fetch subscription ID from database
-    from models import get_user_subscription_id
-    subscription_id = get_user_subscription_id(user_id)
-    if not subscription_id:
-        return jsonify({"error": "No active subscription found"}), 400
+    # Insert assistant reply
+    cursor.execute('''
+        INSERT INTO chat_messages (session_id, role, content)
+        VALUES (%s, %s, %s)
+    ''', (session_id, "assistant", reply))
 
-    # Determine API URL
-    is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
-    api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
+    conn.commit()
+    return jsonify({'reply': reply}), 200
 
-    url = f"{api_base}/subscriptions/{subscription_id}/cancel"
-    headers = {
-        "Authorization": f"Bearer {os.environ['PADDLE_API_KEY']}",
-        "Content-Type": "application/json"
-    }
+# ----- List All Sessions -----
+@chat_bp.route('/sessions', methods=['GET'])
+@token_required
+@subscription_required
+def list_sessions(user_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, title, created_at FROM chat_sessions WHERE user_id = %s ORDER BY created_at DESC",
+        (user_id,)
+    )
+    sessions = [dict(row) for row in cursor.fetchall()]
+    return jsonify({"sessions": sessions})
 
-    # Correct cancellation logic
-    response = requests.post(url, headers=headers, json={"effective_from": "next_billing_period"})
-    if response.status_code not in (200, 204):
-        print("Paddle Cancel Error:", response.text)
-        return jsonify({"error": "Failed to cancel subscription", "details": response.text}), 500
+# ----- Get Messages in a Session -----
+@chat_bp.route('/messages/<int:session_id>', methods=['GET'])
+@token_required
+@subscription_required
+def get_session_messages(user_id, session_id):
+    conn = get_db()
+    cursor = conn.cursor()
 
-    print(f"✅ Subscription {subscription_id} scheduled for cancellation at period end")
-    return jsonify({"message": "Subscription will not renew. You'll keep access until the end of the billing period."})
+    cursor.execute("SELECT * FROM chat_sessions WHERE id = %s AND user_id = %s", (session_id, user_id))
+    session = cursor.fetchone()
+    if not session:
+        return jsonify({"error": "Session not found"}), 404
+
+    cursor.execute(
+        "SELECT role, content, created_at FROM chat_messages WHERE session_id = %s ORDER BY created_at ASC",
+        (session_id,)
+    )
+    messages = [dict(row) for row in cursor.fetchall()]
+    return jsonify({"messages": messages})
