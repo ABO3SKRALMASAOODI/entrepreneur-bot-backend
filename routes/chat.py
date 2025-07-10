@@ -172,7 +172,8 @@ def send_message(user_id):
     ''', (session_id, "assistant", reply))
 
     conn.commit()
-    return jsonify({'reply': reply}), 200
+    return jsonify({'reply': str(reply).strip() if reply else ""}), 200
+
 
 # ----- List All Sessions -----
 @chat_bp.route('/sessions', methods=['GET'])
