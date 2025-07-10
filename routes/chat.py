@@ -78,11 +78,12 @@ def chat(user_id):
                 {"role": "user", "content": prompt}
             ]
         )
-        reply = response['choices'][0]['message']['content']
+        reply = response['choices'][0]['message']['content'].strip()
         return jsonify({'reply': reply}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 # ----- Start New Chat Session -----
 @chat_bp.route('/start-session', methods=['POST'])
