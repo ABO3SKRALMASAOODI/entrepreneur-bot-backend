@@ -55,11 +55,12 @@ def create_checkout_session():
         return jsonify({"error": "Failed to create checkout session", "details": response.text}), 500
 
     data = response.json()
-    checkout_url = data["data"]["checkout"]["url"]
 
-    print("Generated Checkout URL:", checkout_url)
+    transaction_id = data["data"]["id"]  # ✅ This is what Paddle.Checkout.open expects
+    print("✅ Transaction ID for Paddle overlay:", transaction_id)
 
-    return jsonify({"checkout_url": checkout_url})
+    return jsonify({ "transaction_id": transaction_id })  # ✅ Not the checkout_url
+
 @paddle_bp.route('/paddle/cancel-subscription', methods=['POST'])
 def cancel_subscription():
     # Authenticate user
