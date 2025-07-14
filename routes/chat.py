@@ -103,7 +103,6 @@ def start_session(user_id):
 
     return jsonify({"session_id": session_id}), 201
 
-# ----- Send Message in a Session -----
 @chat_bp.route('/send-message', methods=['POST'])
 @token_required
 @subscription_required
@@ -130,8 +129,10 @@ def send_message(user_id):
     session = cursor.fetchone()
     title = session["title"] if session else "Untitled Session"
 
-    # ✅ Now correctly indented inside send_message
-    if len(all_messages) >= 5 and title == "Untitled Session":
+    print(f"[DEBUG] Session {session_id} title: '{title}' | Message count: {len(all_messages)}")
+
+    if len(all_messages) >= 5 and ("untitled" in title.lower()):
+        print(f"[DEBUG] Title rename triggered for session {session_id}. Current title: {title}")
         summary_prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in all_messages[:5]])
         try:
             response = openai.ChatCompletion.create(
@@ -142,11 +143,13 @@ def send_message(user_id):
             )
             new_title = response.choices[0].message["content"].strip().replace("Title:", "").strip()
 
-            if not new_title:
+            if not new_title or "untitled" in new_title.lower():
                 new_title = "Business Chat"
 
             cursor.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
             conn.commit()
+            print(f"[DEBUG] Session {session_id} title updated to: {new_title}")
+
         except Exception as e:
             print("Error generating title:", str(e))
 
@@ -162,6 +165,7 @@ def send_message(user_id):
                 {"role": "user", "content": prompt}
             ]
         )["choices"][0]["message"]["content"]
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -172,7 +176,6 @@ def send_message(user_id):
 
     conn.commit()
     return jsonify({'reply': reply}), 200
-
 
 # ----- List All Sessions -----
 @chat_bp.route('/sessions', methods=['GET'])
