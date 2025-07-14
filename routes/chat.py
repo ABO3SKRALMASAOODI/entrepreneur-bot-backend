@@ -134,20 +134,25 @@ def send_message(user_id):
     title = session["title"] if session else "Untitled Session"
 
     # Generate session title if 3rd message
-    if len(all_messages) == 3 and title == "Untitled Session":
-        summary_prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in all_messages[:3]])
-        try:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role": "user", "content": f"Summarize the following chat as a short session title:\n\n{summary_prompt}\n\nTitle:"}],
-                max_tokens=20,
-                temperature=0.5,
-            )
-            new_title = response.choices[0].message["content"].strip()
-            if new_title:
-                cursor.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
-        except Exception as e:
-            print("Error generating title:", str(e))
+    # Generate session title if 5 or more messages and still Untitled
+if len(all_messages) >= 5 and title == "Untitled Session":
+    summary_prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in all_messages[:5]])
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": f"Summarize the following chat as a short session title (max 6 words):\n\n{summary_prompt}\n\nTitle:"}],
+            max_tokens=20,
+            temperature=0.3,
+        )
+        new_title = response.choices[0].message["content"].strip().replace("Title:", "").strip()
+
+        if not new_title:
+            new_title = "Business Chat"
+
+        cursor.execute("UPDATE chat_sessions SET title = %s WHERE id = %s", (new_title, session_id))
+        conn.commit()  # Commit immediately after updating the title
+    except Exception as e:
+        print("Error generating title:", str(e))
 
     # GPT response
     try:
