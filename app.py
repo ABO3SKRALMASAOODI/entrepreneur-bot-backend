@@ -19,21 +19,25 @@ load_dotenv()
 
 def create_app():
     app = Flask(__name__)
-
-    CORS(app, supports_credentials=True, origins=["https://thehustlerbot.com"])
+    CORS(app)
 
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "supersecretkey")
     app.config['DATABASE_URL'] = os.getenv("DATABASE_URL")
 
+
     init_db(app)
 
-    # Register your routes
+    print("✅ paddle_checkout_bp is being registered")
+
+    # ✅ Register Blueprints
     app.register_blueprint(auth_bp, url_prefix='/auth')
     app.register_blueprint(chat_bp, url_prefix='/chat')
     app.register_blueprint(verify_bp, url_prefix='/verify')
     app.register_blueprint(paypal_bp, url_prefix='/paypal')
     app.register_blueprint(paddle_checkout_bp)
     app.register_blueprint(paddle_webhook)
+
+ 
 
     return app
 
