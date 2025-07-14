@@ -4,12 +4,13 @@ import os
 import jwt
 
 paddle_bp = Blueprint('paddle', __name__)
+print("✅ Paddle routes loaded")
 print("PADDLE_API_KEY from environment:", os.environ.get('PADDLE_API_KEY'))
 print("PADDLE_MODE from environment:", os.environ.get('PADDLE_MODE'))
 
+# Create Checkout Session
 @paddle_bp.route('/paddle/create-checkout-session', methods=['POST'])
 def create_checkout_session():
-    # Authenticate the user via token
     auth_header = request.headers.get('Authorization')
     if not auth_header:
         return jsonify({"error": "Missing token"}), 401
@@ -22,7 +23,6 @@ def create_checkout_session():
     except Exception as e:
         return jsonify({"error": "Invalid token"}), 401
 
-    # Determine API URL based on environment
     is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
     api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
 
@@ -48,22 +48,19 @@ def create_checkout_session():
     }
 
     response = requests.post(url, headers=headers, json=body)
-    print("Raw Paddle API Response:", response.text)
+    print("🔁 Paddle API Response:", response.text)
 
     if response.status_code != 201:
-        print("Paddle Error:", response.text)
         return jsonify({"error": "Failed to create checkout session", "details": response.text}), 500
 
     data = response.json()
+    checkout_url = data["data"]["checkout"]["url"]
+    print("✅ Checkout URL generated:", checkout_url)
+    return jsonify({"checkout_url": checkout_url})
 
-    transaction_id = data["data"]["id"]  # ✅ This is what Paddle.Checkout.open expects
-    print("✅ Transaction ID for Paddle overlay:", transaction_id)
-
-    return jsonify({ "transaction_id": transaction_id })  # ✅ Not the checkout_url
-
+# Cancel Subscription
 @paddle_bp.route('/paddle/cancel-subscription', methods=['POST'])
 def cancel_subscription():
-    # Authenticate user
     auth_header = request.headers.get('Authorization')
     if not auth_header:
         return jsonify({"error": "Missing token"}), 401
@@ -75,13 +72,12 @@ def cancel_subscription():
     except Exception as e:
         return jsonify({"error": "Invalid token"}), 401
 
-    # Fetch subscription ID from database
+    # Get subscription ID from DB
     from models import get_user_subscription_id
     subscription_id = get_user_subscription_id(user_id)
     if not subscription_id:
         return jsonify({"error": "No active subscription found"}), 400
 
-    # Determine API URL
     is_sandbox = os.environ.get('PADDLE_MODE') == 'sandbox'
     api_base = "https://sandbox-api.paddle.com" if is_sandbox else "https://api.paddle.com"
 
@@ -91,10 +87,10 @@ def cancel_subscription():
         "Content-Type": "application/json"
     }
 
-    # Correct cancellation logic
+    # Schedule cancellation at period end
     response = requests.post(url, headers=headers, json={"effective_from": "next_billing_period"})
     if response.status_code not in (200, 204):
-        print("Paddle Cancel Error:", response.text)
+        print("❌ Paddle cancel error:", response.text)
         return jsonify({"error": "Failed to cancel subscription", "details": response.text}), 500
 
     print(f"✅ Subscription {subscription_id} scheduled for cancellation at period end")
