@@ -78,12 +78,11 @@ def chat(user_id):
                 {"role": "user", "content": prompt}
             ]
         )
-        reply = response['choices'][0]['message']['content'].strip()
+        reply = response['choices'][0]['message']['content']
         return jsonify({'reply': reply}), 200
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 # ----- Start New Chat Session -----
 @chat_bp.route('/start-session', methods=['POST'])
@@ -173,8 +172,7 @@ def send_message(user_id):
     ''', (session_id, "assistant", reply))
 
     conn.commit()
-    return jsonify({'reply': str(reply).strip() if reply else ""}), 200
-
+    return jsonify({'reply': reply}), 200
 
 # ----- List All Sessions -----
 @chat_bp.route('/sessions', methods=['GET'])
