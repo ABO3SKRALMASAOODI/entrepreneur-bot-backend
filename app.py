@@ -11,6 +11,9 @@ from dotenv import load_dotenv
 from routes.paypal import paypal_bp
 from routes.paddle import paddle_bp as paddle_checkout_bp
 from routes.paddle_webhook import paddle_webhook
+from routes.agents import agents_bp
+
+
 
 
 
@@ -36,7 +39,7 @@ def create_app():
     app.register_blueprint(paypal_bp, url_prefix='/paypal')
     app.register_blueprint(paddle_checkout_bp)
     app.register_blueprint(paddle_webhook)
-
+    app.register_blueprint(agents_bp, url_prefix="/api/agents")
  
 
     return app
