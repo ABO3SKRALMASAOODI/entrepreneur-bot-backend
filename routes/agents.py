@@ -1,4 +1,3 @@
-# routes/agents.py
 from flask import Blueprint, request, jsonify
 import openai
 import os
@@ -31,6 +30,12 @@ def orchestrator():
             temperature=0.2
         )
         plan_text = response.choices[0].message['content']
-        return jsonify({"plan": plan_text})
+
+        # Return in a chat-friendly format
+        return jsonify({
+            "role": "assistant",
+            "content": plan_text
+        })
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
