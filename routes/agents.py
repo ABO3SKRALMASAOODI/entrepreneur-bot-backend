@@ -38,52 +38,154 @@ SPEC_USER_TEMPLATE = """
 Project request:
 {project}
 
-Constraints:
+Constraints (hard requirements):
 {constraints}
 
-Produce JSON with shape:
-{{
+Produce STRICT JSON (no markdown) with EXACT shape:
+{
   "version": "1.0",
-  "project": "<short>",
-  "tech_stack": {{
-    "frontend": {{ "framework": "<str>", "version": "<semver>" }},
-    "backend":  {{ "framework": "<str>", "version": "<semver>" }},
-    "language_standards": ["<rule>", "<rule>"]
-  }},
-  "file_tree": [ {{ "path": "<string>", "purpose": "<string>" }} ],
-  "api_contracts": [ {{
-    "name": "<string>",
-    "method": "GET|POST|PUT|DELETE",
-    "path": "<string>",
-    "request": {{ "query": {{}}, "body": {{}} }},
-    "response": {{ "200": {{}}, "4xx": {{}}, "5xx": {{}} }}
-  }} ],
-  "data_models": [ {{
-    "name": "<string>",
-    "fields": [{{ "name":"<string>", "type":"<string>", "required": true }}]
-  }} ],
-  "coding_guidelines": {{
-    "naming": ["<rules>"],
-    "state_management": "<rule>",
-    "error_handling": "<rule>",
-    "imports": "<rule>"
-  }},
-  "tasks": [ {{
-    "id": "t1",
-    "file": "<exact path from file_tree>",
-    "role": "Frontend Developer|Backend Developer|Content Writer|Docs",
-    "agent": "frontend|backend|docs",
-    "instructions": "<precise steps>",
-    "depends_on": []
-  }} ]
-}}
+  "project": "<short name>",
+  "tech_stack": {
+    "frontend": { "framework": "<string>", "version": "<semver>" },
+    "backend":  { "framework": "<string>", "version": "<semver>" },
+    "language_standards": ["<e.g. ES2022>", "<PEP8>"]
+  },
+  "file_tree": [
+    { "path": "app.py", "purpose": "Flask app entrypoint" },
+    { "path": "templates/base.html", "purpose": "Layout with <main> and blocks" },
+    { "path": "templates/index.html", "purpose": "Home page" },
+    { "path": "templates/about.html", "purpose": "About page" },
+    { "path": "templates/pricing.html", "purpose": "Pricing page" },
+    { "path": "templates/blog_list.html", "purpose": "Blog list" },
+    { "path": "templates/blog_post.html", "purpose": "Blog article page" },
+    { "path": "templates/contact.html", "purpose": "Contact form page" },
+    { "path": "static/css/style.css", "purpose": "Global styles & utility classes" },
+    { "path": "static/js/main.js", "purpose": "Interactions + analytics hook" },
+    { "path": "static/img/", "purpose": "Images" },
+    { "path": "static/favicon.ico", "purpose": "Favicon" },
+    { "path": "static/site.webmanifest", "purpose": "PWA/manifest (basic)" },
+    { "path": "sitemap.xml", "purpose": "SEO sitemap" },
+    { "path": "robots.txt", "purpose": "Crawler rules" },
+    { "path": "requirements.txt", "purpose": "Dependencies" },
+    { "path": "README.md", "purpose": "Project setup & run instructions" },
+    { "path": "tests/test_routes.py", "purpose": "Smoke tests for routes" }
+  ],
+  "api_contracts": [
+    {
+      "name": "submitContact",
+      "method": "POST",
+      "path": "/api/contact",
+      "request": { "body": { "name":"string", "email":"string", "message":"string" } },
+      "response": { "200": { "ok": true }, "400": { "error": "string" }, "500": { "error": "string" } }
+    }
+  ],
+  "data_models": [
+    { "name": "ContactMessage", "fields": [
+      { "name": "name", "type": "string", "required": true },
+      { "name": "email", "type": "string", "required": true },
+      { "name": "message", "type": "string", "required": true },
+      { "name": "created_at", "type": "datetime", "required": true }
+    ]}
+  ],
+  "coding_guidelines": {
+    "templating": "Use Jinja blocks and extends; no inline styles",
+    "css": "Use utility-like classes + mobile-first breakpoints",
+    "js": "No large frameworks; addListeners in DOMContentLoaded",
+    "accessibility": "WCAG AA contrast, aria-labels for nav and form",
+    "imports": "Use relative imports; keep files under 300 lines unless necessary",
+    "error_handling": "Return JSON errors from APIs; show form errors inline"
+  },
+  "acceptance_criteria": [
+    "All pages render using base layout and are responsive (mobile/tablet/desktop).",
+    "Contact form validates on client and server and returns JSON { ok: true }.",
+    "SEO files exist (sitemap.xml, robots.txt, meta tags in base.html).",
+    "Favicon and manifest present.",
+    "tests/test_routes.py passes basic GET smoke tests.",
+    "README includes install/run instructions."
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "file": "app.py",
+      "role": "Backend Developer",
+      "agent": "backend",
+      "instructions": "Create Flask app with routes: '/', '/about', '/pricing', '/blog', '/blog/<slug>', '/contact', and '/api/contact' (POST). Render templates; POST validates JSON and returns { ok: true }.",
+      "depends_on": []
+    },
+    {
+      "id": "t2",
+      "file": "templates/base.html",
+      "role": "Frontend Developer",
+      "agent": "frontend",
+      "instructions": "Layout with <header> navbar (active link), <main> block, <footer>; include meta tags, OG tags, favicon, and link css/js; use semantic landmarks and skip-to-content link.",
+      "depends_on": ["t1"]
+    },
+    {
+      "id": "t3",
+      "file": "templates/index.html",
+      "role": "Frontend Developer",
+      "agent": "frontend",
+      "instructions": "Hero with CTA, features grid, testimonials section; extends base.html.",
+      "depends_on": ["t2"]
+    },
+    {
+      "id": "t4",
+      "file": "templates/contact.html",
+      "role": "Frontend Developer",
+      "agent": "frontend",
+      "instructions": "Form with name/email/message; client-side validation; posts to /api/contact; show success/error banner.",
+      "depends_on": ["t2"]
+    },
+    {
+      "id": "t5",
+      "file": "static/css/style.css",
+      "role": "Frontend Developer",
+      "agent": "frontend",
+      "instructions": "Mobile-first utilities (container, grid, spacing, colors), responsive navbar, forms, cards; AA contrast.",
+      "depends_on": []
+    },
+    {
+      "id": "t6",
+      "file": "static/js/main.js",
+      "role": "Frontend Developer",
+      "agent": "frontend",
+      "instructions": "DOMContentLoaded handler, nav active-state, smooth scroll, simple analytics hook.",
+      "depends_on": []
+    },
+    {
+      "id": "t7",
+      "file": "sitemap.xml",
+      "role": "Docs",
+      "agent": "docs",
+      "instructions": "Include '/', '/about', '/pricing', '/blog', '/contact' URLs.",
+      "depends_on": ["t1"]
+    },
+    {
+      "id": "t8",
+      "file": "tests/test_routes.py",
+      "role": "Backend Developer",
+      "agent": "backend",
+      "instructions": "Pytest: assert GET routes return 200; POST /api/contact returns 200 with valid payload; 400 with invalid.",
+      "depends_on": ["t1"]
+    },
+    {
+      "id": "t9",
+      "file": "README.md",
+      "role": "Docs",
+      "agent": "docs",
+      "instructions": "Install/run instructions, endpoints, and structure.",
+      "depends_on": ["t1","t2","t3","t4","t5","t6","t7","t8"]
+    }
+  ]
+}
 
 Rules:
-- Respect constraints strictly (e.g. if backend_runtime=python-flask, do NOT create server.js).
-- Every task.file MUST exist in file_tree.
-- Use stable IDs t1..tN and depends_on when order matters.
-- JSON ONLY. No markdown fences.
+- Do NOT output trivial scaffolds (index.html only). Enforce at least 6 templates/pages when min_pages>=6.
+- All task.file paths MUST exist in file_tree.
+- Keep consistent names across api_contracts, templates, and tasks.
+- NO MARKDOWN. JSON ONLY.
 """
+
 
 def generate_spec(project: str, constraints: dict):
     """Calls OpenAI to produce a project spec JSON dict (or raises)."""
