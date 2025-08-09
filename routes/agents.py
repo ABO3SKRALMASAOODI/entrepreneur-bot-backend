@@ -6,19 +6,18 @@ import openai
 agents_bp = Blueprint('agents', __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+
 def _extract_json(text: str):
+    """Try to pull JSON out of a raw LLM response."""
     if not text:
         return None
     s = text.strip()
-    # strip code fences
     if s.startswith("```"):
         s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s, flags=re.MULTILINE).strip()
-    # try parse full
     try:
         return json.loads(s)
     except Exception:
         pass
-    # fallback: search first JSON object/array
     start = min([p for p in [s.find("{"), s.find("[")] if p != -1] or [-1])
     if start == -1:
         return None
@@ -28,6 +27,7 @@ def _extract_json(text: str):
         except Exception:
             continue
     return None
+
 
 SPEC_SYSTEM = (
     "You are a senior software architect and build coordinator. "
@@ -203,15 +203,26 @@ def generate_spec(project: str, constraints: dict):
         constraints=json.dumps(merged, indent=2)
     )
 
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": SPEC_SYSTEM},
-            {"role": "user", "content": user_prompt}
-        ],
-    )
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            timeout=30,
+            messages=[
+                {"role": "system", "content": SPEC_SYSTEM},
+                {"role": "user", "content": user_prompt}
+            ],
+        )
+    except Exception as oe:
+        raise RuntimeError(f"OpenAI error: {oe}")
+
     raw = resp.choices[0].message["content"]
+
+    # Log raw model output for debugging
+    print("🧠 RAW_MODEL_OUTPUT_START")
+    print(raw[:5000])
+    print("🧠 RAW_MODEL_OUTPUT_END")
+
     spec = _extract_json(raw)
 
     if not spec or "tasks" not in spec or "file_tree" not in spec:
@@ -224,6 +235,7 @@ def generate_spec(project: str, constraints: dict):
         raise ValueError(f"Tasks reference unknown files: {bad[:3]}")
 
     return spec
+
 
 @agents_bp.route('/start', methods=['POST', 'OPTIONS'])
 def start_project():
@@ -240,6 +252,7 @@ def start_project():
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
+
 @agents_bp.route('/orchestrator', methods=['POST', 'OPTIONS'])
 def orchestrator():
     if request.method == 'OPTIONS':
@@ -251,11 +264,14 @@ def orchestrator():
         return jsonify({"error": "No project description provided"}), 400
     try:
         spec = generate_spec(project, constraints)
-        # human-readable summary for chat + structured spec
         lines = [f"**Project:** {spec.get('project','')}", "\n**Tasks:**"]
         for i, t in enumerate(spec.get("tasks", []), 1):
             lines.append(f"{i}. **{t.get('file')}** — _{t.get('role')}_")
         human = "\n".join(lines)
         return jsonify({"role": "assistant", "content": human, "spec": spec})
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        fallback = (
+            "⚠️ I couldn't assemble a full spec from that prompt. "
+            "Try adding more details or constraints."
+        )
+        return jsonify({"role": "assistant", "content": fallback, "error": str(e)}), 200
