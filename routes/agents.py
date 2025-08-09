@@ -208,10 +208,10 @@ def generate_spec(project: str, constraints: dict, retries: int = 3):
     }
     merged = {**default_constraints, **(constraints or {})}
 
-    user_prompt = SPEC_USER_TEMPLATE.format(
-        project=project,
-        constraints=json.dumps(merged, indent=2)
-    )
+   user_prompt = SPEC_USER_TEMPLATE \
+    .replace("{project}", project) \
+    .replace("{constraints}", json.dumps(merged, indent=2))
+
 
     last_error = None
     for attempt in range(retries):
