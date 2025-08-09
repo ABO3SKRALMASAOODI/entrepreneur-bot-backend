@@ -221,7 +221,8 @@ def generate_spec(project: str, constraints: dict):
         ],
     )
     raw = resp.choices[0].message["content"]
-    spec = _extract_json(raw)
+    spec = _extract_json_safe(raw)
+
 
     if not spec or "tasks" not in spec or "file_tree" not in spec:
         raise ValueError("Spec generation failed")
