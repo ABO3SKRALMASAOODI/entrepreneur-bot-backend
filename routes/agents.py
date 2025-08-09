@@ -6,9 +6,12 @@ import openai
 agents_bp = Blueprint('agents', __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# Simple in-memory state for each "conversation"
+# In production, use Redis or DB
+user_sessions = {}
 
+# Helper to parse JSON from LLM output
 def _extract_json(text: str):
-    """Try to pull JSON out of a raw LLM response."""
     if not text:
         return None
     s = text.strip()
@@ -188,7 +191,6 @@ Rules:
 
 
 def generate_spec(project: str, constraints: dict):
-    """Calls OpenAI to produce a project spec JSON dict (or raises)."""
     default_constraints = {
         "backend_runtime": "python-flask",
         "frontend_runtime": "vanilla",
@@ -203,39 +205,25 @@ def generate_spec(project: str, constraints: dict):
         constraints=json.dumps(merged, indent=2)
     )
 
-    try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            temperature=0.2,
-            timeout=30,
-            messages=[
-                {"role": "system", "content": SPEC_SYSTEM},
-                {"role": "user", "content": user_prompt}
-            ],
-        )
-    except Exception as oe:
-        raise RuntimeError(f"OpenAI error: {oe}")
-
+    resp = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        temperature=0.2,
+        messages=[
+            {"role": "system", "content": SPEC_SYSTEM},
+            {"role": "user", "content": user_prompt}
+        ],
+    )
     raw = resp.choices[0].message["content"]
-
-    # Log raw model output for debugging
-    print("🧠 RAW_MODEL_OUTPUT_START")
-    print(raw[:5000])
-    print("🧠 RAW_MODEL_OUTPUT_END")
-
     spec = _extract_json(raw)
 
     if not spec or "tasks" not in spec or "file_tree" not in spec:
         raise ValueError("Spec generation failed")
 
-    # minimal validation
     file_paths = {f.get("path") for f in spec.get("file_tree", []) if f.get("path")}
     bad = [t for t in spec.get("tasks", []) if t.get("file") not in file_paths]
     if bad:
         raise ValueError(f"Tasks reference unknown files: {bad[:3]}")
-
     return spec
-
 
 @agents_bp.route('/start', methods=['POST', 'OPTIONS'])
 def start_project():
@@ -252,26 +240,65 @@ def start_project():
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 
-
 @agents_bp.route('/orchestrator', methods=['POST', 'OPTIONS'])
 def orchestrator():
     if request.method == 'OPTIONS':
         return ('', 200)
+
     body = request.get_json(force=True) or {}
-    project = (body.get("project") or "").strip()
+    user_id = body.get("user_id", "default")  # Replace with real session/user ID
+    user_input = (body.get("project") or "").strip()
     constraints = body.get("constraints", {})
-    if not project:
-        return jsonify({"error": "No project description provided"}), 400
-    try:
-        spec = generate_spec(project, constraints)
-        lines = [f"**Project:** {spec.get('project','')}", "\n**Tasks:**"]
-        for i, t in enumerate(spec.get("tasks", []), 1):
-            lines.append(f"{i}. **{t.get('file')}** — _{t.get('role')}_")
-        human = "\n".join(lines)
-        return jsonify({"role": "assistant", "content": human, "spec": spec})
-    except Exception as e:
-        fallback = (
-            "⚠️ I couldn't assemble a full spec from that prompt. "
-            "Try adding more details or constraints."
-        )
-        return jsonify({"role": "assistant", "content": fallback, "error": str(e)}), 200
+
+    # Retrieve session state
+    session = user_sessions.get(user_id, {"project": "", "constraints": {}})
+
+    # If user just sent a vague request and we have no details yet
+    if not session["project"]:
+        if len(user_input.split()) < 3:
+            return jsonify({
+                "role": "assistant",
+                "content": "Can you tell me more? What kind of website or app do you need — for a business, blog, store, portfolio, or something else?"
+            })
+        session["project"] = user_input
+        user_sessions[user_id] = session
+        return jsonify({
+            "role": "assistant",
+            "content": "Got it. How many pages or main features should it have?"
+        })
+
+    # If project is set but constraints are missing
+    if not session["constraints"].get("pages") and "pages" not in constraints:
+        if user_input.isdigit():
+            session["constraints"]["pages"] = int(user_input)
+            user_sessions[user_id] = session
+            return jsonify({
+                "role": "assistant",
+                "content": "Should it have any special features like online payments, blog, user accounts, or forms?"
+            })
+        else:
+            return jsonify({
+                "role": "assistant",
+                "content": "How many main pages should it have? (e.g. 3, 5, 10)"
+            })
+
+    # Merge new constraints
+    session["constraints"].update(constraints)
+    user_sessions[user_id] = session
+
+    # If we have enough detail, generate spec
+    if session["project"] and session["constraints"].get("pages"):
+        try:
+            spec = generate_spec(session["project"], session["constraints"])
+            lines = [f"**Project:** {spec.get('project','')}", "\n**Tasks:**"]
+            for i, t in enumerate(spec.get("tasks", []), 1):
+                lines.append(f"{i}. **{t.get('file')}** — _{t.get('role')}_")
+            human = "\n".join(lines)
+            return jsonify({"role": "assistant", "content": human, "spec": spec})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 502
+
+    return jsonify({
+        "role": "assistant",
+        "content": "I still need a bit more detail to start building the project spec."
+    })
