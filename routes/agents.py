@@ -242,6 +242,7 @@ def start_project():
         return jsonify({"project_id": None, "spec": spec})
     except Exception as e:
         return jsonify({"error": str(e)}), 502
+REQUIRED_KEYS = ["pages", "features"]
 
 @agents_bp.route('/orchestrator', methods=['POST', 'OPTIONS'])
 def orchestrator():
@@ -249,14 +250,13 @@ def orchestrator():
         return ('', 200)
 
     body = request.get_json(force=True) or {}
-    user_id = body.get("user_id", "default")  # Replace with real session/user ID
+    user_id = body.get("user_id", "default")
     user_input = (body.get("project") or "").strip()
     constraints = body.get("constraints", {})
 
-    # Retrieve session state
     session = user_sessions.get(user_id, {"project": "", "constraints": {}})
 
-    # If user just sent a vague request and we have no details yet
+    # Step 1: No project yet
     if not session["project"]:
         if len(user_input.split()) < 3:
             return jsonify({
@@ -265,43 +265,38 @@ def orchestrator():
             })
         session["project"] = user_input
         user_sessions[user_id] = session
-        return jsonify({
-            "role": "assistant",
-            "content": "Got it. How many pages or main features should it have?"
-        })
+        return jsonify({"role": "assistant", "content": "How many pages should it have?"})
 
-    # If project is set but constraints are missing
-    if not session["constraints"].get("pages") and "pages" not in constraints:
+    # Step 2: Ask for pages
+    if "pages" not in session["constraints"] and "pages" not in constraints:
         if user_input.isdigit():
             session["constraints"]["pages"] = int(user_input)
             user_sessions[user_id] = session
-            return jsonify({
-                "role": "assistant",
-                "content": "Should it have any special features like online payments, blog, user accounts, or forms?"
-            })
+            return jsonify({"role": "assistant", "content": "Should it have any special features like payments, blog, accounts, or forms?"})
         else:
-            return jsonify({
-                "role": "assistant",
-                "content": "How many main pages should it have? (e.g. 3, 5, 10)"
-            })
+            return jsonify({"role": "assistant", "content": "Please give a number for how many main pages."})
 
-    # Merge new constraints
+    # Step 3: Ask for features
+    if "features" not in session["constraints"] and "features" not in constraints:
+        if user_input:
+            session["constraints"]["features"] = user_input.lower()
+            user_sessions[user_id] = session
+        else:
+            return jsonify({"role": "assistant", "content": "What special features should it have? (e.g. payments, blog, accounts)"})
+
+    # Merge constraints
     session["constraints"].update(constraints)
     user_sessions[user_id] = session
 
-    # If we have enough detail, generate spec
-    if session["project"] and session["constraints"].get("pages"):
+    # Step 4: Check if all required keys are filled
+    if all(k in session["constraints"] for k in REQUIRED_KEYS):
         try:
             spec = generate_spec(session["project"], session["constraints"])
             lines = [f"**Project:** {spec.get('project','')}", "\n**Tasks:**"]
             for i, t in enumerate(spec.get("tasks", []), 1):
                 lines.append(f"{i}. **{t.get('file')}** — _{t.get('role')}_")
-            human = "\n".join(lines)
-            return jsonify({"role": "assistant", "content": human, "spec": spec})
+            return jsonify({"role": "assistant", "content": "\n".join(lines), "spec": spec})
         except Exception as e:
             return jsonify({"error": str(e)}), 502
 
-    return jsonify({
-        "role": "assistant",
-        "content": "I still need a bit more detail to start building the project spec."
-    })
+    return jsonify({"role": "assistant", "content": "I still need a bit more detail before I can start building the spec."})
