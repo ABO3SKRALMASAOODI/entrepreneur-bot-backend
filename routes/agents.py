@@ -130,21 +130,39 @@ Rules:
     if not spec:
         raise ValueError("Spec generation failed — no valid JSON returned")
     return spec
-
 @agents_bp.route('/orchestrator', methods=['POST', 'OPTIONS'])
 def orchestrator():
     if request.method == 'OPTIONS':
         return ('', 200)
 
-    body = request.get_json(force=True) or {}
-    user_input = (body.get("answer") or "").strip()
+    try:
+        body = request.get_json(force=True, silent=True) or {}
 
-    if not user_input:
-        return jsonify({"error": "Missing 'answer'"}), 400
+        # Accept multiple possible keys or a raw string
+        if isinstance(body, str):
+            user_input = body.strip()
+        else:
+            user_input = (
+                body.get("answer")
+                or body.get("content")
+                or body.get("message")
+                or body.get("input")
+                or ""
+            ).strip()
 
-    spec = generate_full_spec(user_input)
-    return jsonify({
-        "role": "assistant",
-        "content": f"✅ Complete Project Spec for {spec.get('project')}",
-        "spec": spec
-    })
+        if not user_input:
+            return jsonify({
+                "error": "No valid project description provided.",
+                "hint": "Send JSON like { 'answer': 'Website for women’s clothing business' }"
+            }), 400
+
+        spec = generate_full_spec(user_input)
+
+        return jsonify({
+            "role": "assistant",
+            "content": f"✅ Complete Project Spec for {spec.get('project')}",
+            "spec": spec
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
