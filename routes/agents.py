@@ -163,9 +163,6 @@ def generate_spec(project: str, design: str):
         raise ValueError("❌ Failed to parse JSON spec")
 
     return spec
-
-# ===== Orchestrator Route =====
-user_sessions = {}
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
@@ -181,19 +178,34 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
+    # Stage 1: Get project idea
     if session["stage"] == "project":
         if not project:
-            return jsonify({"role": "assistant", "content": "What is your project idea?"})
+            return jsonify({
+                "role": "assistant",
+                "content": "What is your project idea?"
+            })
         session["project"] = project
         session["stage"] = "design"
-        return jsonify({"role": "assistant", "content": "Do you have preferences for design style, colors, layout, branding, tone, or accessibility?"})
+        return jsonify({
+            "role": "assistant",
+            "content": "Do you have preferences for design style, colors, layout, branding, tone, or accessibility?"
+        })
 
+    # Stage 2: Get design preferences and generate spec
     if session["stage"] == "design":
         session["design"] = design if design else "no preference"
         session["stage"] = "done"
 
         try:
             spec = generate_spec(session["project"], session["design"])
-            return jsonify({"role": "assistant", "content": "✅ Full project spec generated", "spec": spec})
+            # Show full spec directly in the response
+            return jsonify({
+                "role": "assistant",
+                "content": f"✅ Full project spec generated:\n\n{json.dumps(spec, indent=2)}"
+            })
         except Exception as e:
-            return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+            return jsonify({
+                "role": "assistant",
+                "content": f"❌ Failed to generate spec: {e}"
+            })
