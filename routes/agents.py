@@ -222,8 +222,11 @@ def generate_spec(project: str, constraints: dict):
     file_paths = {f.get("path") for f in spec.get("file_tree", []) if f.get("path")}
     bad = [t for t in spec.get("tasks", []) if t.get("file") not in file_paths]
     if bad:
-        raise ValueError(f"Tasks reference unknown files: {bad[:3]}")
+        print(f"⚠️ Tasks reference unknown files, removing them: {bad[:3]}")
+        spec["tasks"] = [t for t in spec.get("tasks", []) if t.get("file") in file_paths]
+
     return spec
+
 
 @agents_bp.route('/start', methods=['POST', 'OPTIONS'])
 def start_project():
