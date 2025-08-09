@@ -11,24 +11,29 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 user_sessions = {}
 
 # Helper to parse JSON from LLM output
-def _extract_json(text: str):
+def _extract_json_safe(text: str):
+    """More forgiving JSON extractor."""
     if not text:
         return None
     s = text.strip()
+    # Remove markdown fences if present
     if s.startswith("```"):
         s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s, flags=re.MULTILINE).strip()
+
+    # First try direct parse
     try:
         return json.loads(s)
     except Exception:
         pass
+
+    # Try substring search for JSON object or array
     start = min([p for p in [s.find("{"), s.find("[")] if p != -1] or [-1])
-    if start == -1:
-        return None
-    for end in range(len(s), start, -1):
-        try:
-            return json.loads(s[start:end])
-        except Exception:
-            continue
+    if start != -1:
+        for end in range(len(s), start, -1):
+            try:
+                return json.loads(s[start:end])
+            except Exception:
+                continue
     return None
 
 
@@ -190,7 +195,10 @@ Rules:
 """
 
 
-def generate_spec(project: str, constraints: dict):
+
+
+def generate_spec(project: str, constraints: dict, retries: int = 3):
+    """Call OpenAI to generate spec with retries and safe parsing."""
     default_constraints = {
         "backend_runtime": "python-flask",
         "frontend_runtime": "vanilla",
@@ -205,27 +213,40 @@ def generate_spec(project: str, constraints: dict):
         constraints=json.dumps(merged, indent=2)
     )
 
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        temperature=0.2,
-        messages=[
-            {"role": "system", "content": SPEC_SYSTEM},
-            {"role": "user", "content": user_prompt}
-        ],
-    )
-    raw = resp.choices[0].message["content"]
-    spec = _extract_json(raw)
+    last_error = None
+    for attempt in range(retries):
+        try:
+            resp = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                temperature=0.2,
+                messages=[
+                    {"role": "system", "content": SPEC_SYSTEM},
+                    {"role": "user", "content": user_prompt}
+                ],
+                timeout=30  # prevent hanging forever
+            )
 
-    if not spec or "tasks" not in spec or "file_tree" not in spec:
-        raise ValueError("Spec generation failed")
+            raw = resp.choices[0].message["content"]
+            spec = _extract_json_safe(raw)
 
-    file_paths = {f.get("path") for f in spec.get("file_tree", []) if f.get("path")}
-    bad = [t for t in spec.get("tasks", []) if t.get("file") not in file_paths]
-    if bad:
-        print(f"⚠️ Tasks reference unknown files, removing them: {bad[:3]}")
-        spec["tasks"] = [t for t in spec.get("tasks", []) if t.get("file") in file_paths]
+            if not spec or "tasks" not in spec or "file_tree" not in spec:
+                raise ValueError("Spec generation failed — missing keys.")
 
-    return spec
+            # Validate file paths
+            file_paths = {f.get("path") for f in spec.get("file_tree", []) if f.get("path")}
+            bad = [t for t in spec.get("tasks", []) if t.get("file") not in file_paths]
+            if bad:
+                print(f"⚠️ Removing tasks with unknown files: {bad[:3]}")
+                spec["tasks"] = [t for t in spec["tasks"] if t.get("file") in file_paths]
+
+            return spec  # Success
+
+        except Exception as e:
+            last_error = e
+            print(f"❌ Spec generation attempt {attempt+1} failed: {e}")
+
+    # If we reach here, all retries failed
+    return {"error": f"Failed to generate spec after {retries} attempts: {last_error}"}
 
 
 @agents_bp.route('/start', methods=['POST', 'OPTIONS'])
@@ -289,14 +310,17 @@ def orchestrator():
     user_sessions[user_id] = session
 
     # Step 4: Check if all required keys are filled
+    REQUIRED_KEYS = ["pages", "features"]
     if all(k in session["constraints"] for k in REQUIRED_KEYS):
-        try:
-            spec = generate_spec(session["project"], session["constraints"])
-            lines = [f"**Project:** {spec.get('project','')}", "\n**Tasks:**"]
-            for i, t in enumerate(spec.get("tasks", []), 1):
-                lines.append(f"{i}. **{t.get('file')}** — _{t.get('role')}_")
-            return jsonify({"role": "assistant", "content": "\n".join(lines), "spec": spec})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 502
+        spec = generate_spec(session["project"], session["constraints"])
+        if "error" in spec:
+            return jsonify({
+                "role": "assistant",
+                "content": f"❌ I couldn't generate the project spec: {spec['error']}. Try adjusting your request or simplifying the requirements."
+            })
+        lines = [f"**Project:** {spec.get('project','')}", "\n**Tasks:**"]
+        for i, t in enumerate(spec.get("tasks", []), 1):
+            lines.append(f"{i}. **{t.get('file')}** — _{t.get('role')}_")
+        return jsonify({"role": "assistant", "content": "\n".join(lines), "spec": spec})
 
     return jsonify({"role": "assistant", "content": "I still need a bit more detail before I can start building the spec."})
