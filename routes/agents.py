@@ -6,11 +6,8 @@ import openai
 agents_bp = Blueprint('agents', __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# User session memory (in production, use DB or Redis)
-user_sessions = {}
-
-# Forgiving JSON extractor
 def _extract_json_safe(text: str):
+    """Safely extract JSON from AI output."""
     if not text:
         return None
     s = text.strip()
@@ -29,40 +26,28 @@ def _extract_json_safe(text: str):
                 continue
     return None
 
-# System prompt for spec generation
 SPEC_SYSTEM = (
-    "You are a Chief Software Architect. "
-    "Your job is to create a COMPLETE and CONSISTENT multi-agent build specification "
-    "based on the user's high-level requirements. "
-    "The user will NEVER provide low-level implementation details — you must decide all names, file paths, API routes, and structures yourself. "
-    "Output STRICT JSON ONLY — no markdown, no prose."
+    "You are a world-class Chief Software Architect & Multi-Agent Coordinator. "
+    "Given ANY high-level user description, you will generate a COMPLETE, "
+    "CONSISTENT, and EXECUTABLE build specification for multiple AI coding agents. "
+    "You must decide ALL missing details yourself without asking the user. "
+    "Your output will allow agents to build the system with ZERO conflicts. "
+    "Be explicit about function signatures, input/output types, file paths, "
+    "API routes, and dependencies."
 )
 
-# High-level question sequence
-QUESTION_FLOW = [
-    {"key": "purpose", "text": "What is the main purpose or goal of this project?"},
-    {"key": "type", "text": "What type of project is it? (e.g., website, mobile app, AI model, blockchain, API service)"},
-    {"key": "audience", "text": "Who is the target audience or main user group?"},
-    {"key": "features", "text": "What main features or modules should it have?"},
-    {"key": "platforms", "text": "What platforms should it run on? (web, iOS, Android, CLI, API, IoT)"},
-    {"key": "integrations", "text": "Any integrations or APIs required? (e.g., payment gateways, OpenAI, AWS, Google Maps)"},
-    {"key": "scale", "text": "Any performance or scalability requirements? (e.g., handle 10k concurrent users, high security)"},
-    {"key": "design", "text": "Any design or UI style preferences?"},
-    {"key": "timeline", "text": "What’s your target timeline for the MVP or first version?"}
-]
-def generate_spec(high_level: dict):
-    # Convert answers into JSON string for prompt
-    user_context = json.dumps(high_level, indent=2)
-
+def generate_full_spec(user_input: str):
+    """Generate a complete A-to-Z multi-agent spec from a single user description."""
     prompt = f"""
-User's high-level requirements:
-{user_context}
+User's request:
+\"\"\"{user_input}\"\"\"
 
-Now produce a STRICT JSON specification with this shape:
+Now produce STRICT JSON ONLY with the following shape:
 {{
   "version": "1.0",
-  "project": "<short name>",
+  "project": "<short descriptive name>",
   "type": "<website|mobile app|ai model|blockchain|api service|other>",
+  "description": "<1-2 sentence project description>",
   "tech_stack": {{
     "frontend": {{ "framework": "<string>", "version": "<semver>" }},
     "backend":  {{ "framework": "<string>", "version": "<semver>" }},
@@ -77,43 +62,62 @@ Now produce a STRICT JSON specification with this shape:
       "name": "<api_name>",
       "method": "<GET|POST|PUT|DELETE>",
       "path": "<string>",
-      "request": {{ }},
-      "response": {{ }}
+      "request": {{ "type": "<schema or fields>" }},
+      "response": {{ "type": "<schema or fields>" }}
     }}
   ],
   "data_models": [
     {{ "name": "<model_name>", "fields": [{{"name": "<field>", "type": "<type>", "required": true}}] }}
   ],
-  "coding_guidelines": {{
-    "style": "coding style & formatting rules",
-    "error_handling": "error handling rules",
-    "security": "security considerations"
-  }},
-  "acceptance_criteria": [
-    "list of clear acceptance criteria"
+  "function_specs": [
+    {{
+      "name": "<function_name>",
+      "agent": "<frontend|backend|ml|blockchain|docs|qa>",
+      "args": [{{"name": "<arg>", "type": "<type>"}}],
+      "returns": "<type>",
+      "description": "<short description>"
+    }}
   ],
-  "tasks": [
+  "agent_tasks": [
     {{
       "id": "t1",
       "file": "<filename>",
       "role": "<agent role>",
       "agent": "<frontend|backend|ml|blockchain|docs|qa>",
       "instructions": "detailed task instructions",
-      "depends_on": []
+      "depends_on": ["<task_ids>"]
     }}
+  ],
+  "agent_dependencies": [
+    {{
+      "from": "<task_id>",
+      "to": "<task_id>",
+      "reason": "<why this dependency exists>"
+    }}
+  ],
+  "coding_guidelines": {{
+    "style": "coding style & formatting rules",
+    "error_handling": "error handling rules",
+    "security": "security considerations"
+  }},
+  "testing_requirements": [
+    "clear test requirements and cases"
+  ],
+  "acceptance_criteria": [
+    "clear acceptance criteria"
   ]
 }}
 
 Rules:
-- Decide ALL low-level implementation details yourself.
-- Keep names, API paths, and file structure consistent.
-- Do not leave any placeholder fields empty.
-- This spec must allow multiple AI agents to generate fully compatible code with zero conflicts.
+- Fill EVERYTHING with concrete details.
+- Use consistent naming for files, functions, models, and API paths.
+- No placeholders like 'TBD' or empty arrays.
+- Think like you're building it yourself for real.
 """
 
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
-        temperature=0.2,
+        temperature=0.1,
         messages=[
             {"role": "system", "content": SPEC_SYSTEM},
             {"role": "user", "content": prompt}
@@ -124,35 +128,23 @@ Rules:
     spec = _extract_json_safe(raw)
 
     if not spec:
-        raise ValueError("Spec generation failed — no valid JSON")
+        raise ValueError("Spec generation failed — no valid JSON returned")
     return spec
+
 @agents_bp.route('/orchestrator', methods=['POST', 'OPTIONS'])
 def orchestrator():
     if request.method == 'OPTIONS':
         return ('', 200)
 
     body = request.get_json(force=True) or {}
-    user_id = body.get("user_id", "default")
     user_input = (body.get("answer") or "").strip()
 
-    session = user_sessions.get(user_id, {"answers": {}, "step": 0})
+    if not user_input:
+        return jsonify({"error": "Missing 'answer'"}), 400
 
-    # Save answer from previous step
-    if session["step"] > 0:
-        last_key = QUESTION_FLOW[session["step"] - 1]["key"]
-        session["answers"][last_key] = user_input
-
-    # If we still have more questions to ask
-    if session["step"] < len(QUESTION_FLOW):
-        question = QUESTION_FLOW[session["step"]]["text"]
-        session["step"] += 1
-        user_sessions[user_id] = session
-        return jsonify({"role": "assistant", "content": question})
-
-    # All questions answered → generate spec
-    spec = generate_spec(session["answers"])
+    spec = generate_full_spec(user_input)
     return jsonify({
         "role": "assistant",
-        "content": f"✅ Project Spec for {spec.get('project')}",
+        "content": f"✅ Complete Project Spec for {spec.get('project')}",
         "spec": spec
     })
