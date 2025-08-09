@@ -5,6 +5,7 @@ from datetime import datetime
 
 agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+user_sessions = {}
 
 # ===== JSON extractor =====
 def _extract_json_safe(text: str):
@@ -139,7 +140,6 @@ Produce STRICT JSON:
   ]
 }
 """
-
 # ===== Spec Generator =====
 def generate_spec(project: str, design: str):
     filled = SPEC_TEMPLATE.replace("{project}", project).replace("{design}", design).replace(
@@ -163,6 +163,8 @@ def generate_spec(project: str, design: str):
         raise ValueError("❌ Failed to parse JSON spec")
 
     return spec
+
+
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
