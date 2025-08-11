@@ -164,3 +164,14 @@ def orchestrator():
             return jsonify({"role": "assistant", "content": json.dumps(spec, indent=2)})
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+
+    # Stage 3: Already done — reset or inform user
+    if session["stage"] == "done":
+        if project and project != session["project"]:
+            # Reset for new project
+            session["project"] = project
+            session["design"] = ""
+            session["stage"] = "design"
+            return jsonify({"role": "assistant", "content": "Any preferences for style, colors, layout, branding, tone, or accessibility?"})
+        else:
+            return jsonify({"role": "assistant", "content": "You have already generated a plan. Please provide a new project idea to start over."})
