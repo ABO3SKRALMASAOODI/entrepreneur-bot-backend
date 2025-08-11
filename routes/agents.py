@@ -10,7 +10,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 
 PROJECT_STATE_FILE = Path("project_state.json")
 
-# ===== Persistent Storage =====
+# ===== Persistent State =====
 def load_state():
     if PROJECT_STATE_FILE.exists():
         with open(PROJECT_STATE_FILE, "r") as f:
@@ -84,18 +84,20 @@ CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
 # ===== System Prompt =====
 SPEC_SYSTEM = (
-    "You are the most advanced multi-agent project orchestrator in the universe. "
-    "You must produce a FINAL, COMPLETE, ZERO-AMBIGUITY universal specification "
-    "that ensures perfect compatibility across 100+ agents (1 per file) for ANY project type.\n"
+    "You are the most advanced universal multi-agent project orchestrator in the universe. "
+    "Your goal is to produce a FINAL, COMPLETE, ZERO-AMBIGUITY specification "
+    "that guarantees compatibility across 100+ agents (1 per file) for ANY project type.\n"
     "--- RULES ---\n"
-    "1. All user-provided preferences or requirements are immutable and must be included in the spec.\n"
-    "2. Generate file-per-agent mapping in `agent_blueprint` with unique scope, file path, and dependencies.\n"
+    "1. All user-provided preferences/requirements are immutable and must appear in relevant spec fields.\n"
+    "2. Automatically generate file-per-agent mapping with unique scopes, paths, dependencies.\n"
     "3. Populate all keys: global_naming_contract, data_dictionary, shared_schemas, protocol_schemas, errors_module, "
     "function_contract_manifest, interface_stub_files, agent_blueprint, api_contracts, db_schema, domain_specific, "
     "inter_agent_protocols, dependency_graph, execution_plan, integration_tests, test_cases.\n"
-    "4. Function manifest must list every function for every file.\n"
-    "5. Integration tests must validate schema hash, manifest compliance, protocol round-trips.\n"
-    "6. Output STRICT JSON ONLY."
+    "4. Scale the output so complex projects have 100–200+ agents/files.\n"
+    "5. All files import shared_schemas; no local type duplication.\n"
+    "6. Function manifest lists every function in every file with params, return type, errors.\n"
+    "7. Integration tests must validate schema hash, manifest compliance, protocol round-trips.\n"
+    "8. Output STRICT JSON ONLY."
 )
 
 # ===== Spec Template =====
@@ -105,7 +107,7 @@ Preferences/Requirements: {clarifications}
 
 Produce STRICT JSON:
 {{
-  "version": "11.0",
+  "version": "12.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
   "description": "<comprehensive summary>",
@@ -149,7 +151,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
     """Ensure user clarifications are reflected in the spec."""
     if clarifications.strip():
         spec["domain_specific"]["user_constraints"] = clarifications
-        if "description" in spec and clarifications not in spec["description"]:
+        if clarifications not in spec.get("description", ""):
             spec["description"] += f" | User constraints: {clarifications}"
     return spec
 
