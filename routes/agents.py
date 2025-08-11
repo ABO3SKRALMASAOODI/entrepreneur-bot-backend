@@ -154,16 +154,14 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         if "user_constraints" not in spec["domain_specific"]:
             spec["domain_specific"]["user_constraints"] = clarifications
     return spec
-
-# ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
     filled = SPEC_TEMPLATE.replace("{project}", project).replace("{clarifications}", clarifications).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
     try:
         resp = openai.ChatCompletion.create(
-            model="gpt-5",
-            temperature=0.05,
+            model="gpt-4o-mini",  # switched from gpt-5 to gpt-4o-mini
+            temperature=0.05,     # allowed here
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": filled}
