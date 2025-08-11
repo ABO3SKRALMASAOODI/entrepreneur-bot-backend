@@ -27,7 +27,6 @@ user_sessions = {}
 
 # ===== JSON extractor =====
 def _extract_json_safe(text: str):
-    """Extract JSON safely from LLM output."""
     if not text:
         return None
     s = text.strip()
@@ -84,17 +83,20 @@ CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
 # ===== System Prompt =====
 SPEC_SYSTEM = (
-    "You are the most advanced AI project orchestrator in existence. "
-    "Your goal is to produce a FINAL, COMPLETE, ZERO-AMBIGUITY universal multi-agent specification "
+    "You are an elite multi-agent project orchestrator. "
+    "You must produce a FINAL, COMPLETE, ZERO-AMBIGUITY universal specification "
     "that ensures perfect compatibility across 100+ agents for ANY project type.\n"
-    "--- ABSOLUTE RULES ---\n"
-    "1. Always include the universal core schema in 'shared_schemas'.\n"
-    f"2. Lock the core schema hash to '{CORE_SCHEMA_HASH}'.\n"
-    "3. Define a full function_contract_manifest.json for ALL functions with names, params, return types, and errors.\n"
-    "4. All interface_stub_files must import shared types — no local type definitions allowed.\n"
-    "5. Generate integration tests that verify schema hashes, manifest compliance, and API contract adherence.\n"
-    "6. No prose in output — STRICT JSON only.\n"
-    "--- REQUIRED OUTPUT KEYS ---\n"
+    "--- RULES ---\n"
+    "1. Treat any user-provided preferences or requirements as absolute constraints. "
+    "They must appear in the final specification without being replaced by defaults.\n"
+    "2. Output must always include:\n"
+    "   - A universal core schema, locked by hash.\n"
+    "   - A large-scale function contract manifest covering all major components.\n"
+    "   - Detailed inter-agent communication schemas.\n"
+    "   - A complete dependency graph suitable for scaling to hundreds of agents.\n"
+    "   - Integration tests that enforce schema hashes, manifest compliance, and protocol correctness.\n"
+    "3. No prose or explanations — STRICT JSON output.\n"
+    "--- REQUIRED KEYS ---\n"
     "global_naming_contract, data_dictionary, shared_schemas, protocol_schemas, errors_module, "
     "function_contract_manifest, interface_stub_files, agent_blueprint, api_contracts, db_schema, domain_specific, "
     "inter_agent_protocols, dependency_graph, execution_plan, integration_tests, test_cases."
@@ -110,14 +112,14 @@ Produce STRICT JSON:
   "version": "9.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
-  "description": "<universal project spec>",
+  "description": "<detailed summary>",
   "project_type": "<auto-detected>",
   "target_users": [],
   "tech_stack": {{}},
   "global_naming_contract": {{}},
   "data_dictionary": [],
   "shared_schemas": {shared_schemas},
-  "protocol_schemas": "Pydantic/BaseModel schemas for inter-agent communication",
+  "protocol_schemas": "Detailed schemas for all inter-agent messages",
   "errors_module": "Custom exception classes extending BaseError",
   "function_contract_manifest": {{}},
   "interface_stub_files": [],
@@ -135,11 +137,11 @@ Produce STRICT JSON:
     }},
     {{
       "path": "test_manifest_compliance.py",
-      "code": "# Validates all implemented functions match the manifest exactly"
+      "code": "# Ensures all implemented functions match the manifest exactly"
     }},
     {{
-      "path": "test_api_contracts.py",
-      "code": "# Validates OpenAPI/AsyncAPI contracts match implementation"
+      "path": "test_protocol_roundtrip.py",
+      "code": "# Verifies message formats can be serialized/deserialized without loss"
     }}
   ],
   "test_cases": []
@@ -185,13 +187,11 @@ def orchestrator():
     project = body.get("project", "").strip()
     clarifications = body.get("clarifications", "").strip()
 
-    # Init session for user
     if user_id not in user_sessions:
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
 
     session = user_sessions[user_id]
 
-    # Stage 1: Get project
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
@@ -202,7 +202,6 @@ def orchestrator():
             "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"
         })
 
-    # Stage 2: Get preferences and generate spec
     if session["stage"] == "clarifications":
         session["clarifications"] = clarifications if clarifications else "no preference"
         session["stage"] = "done"
@@ -212,7 +211,6 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    # Stage 3: Done — reset for new project
     if session["stage"] == "done":
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
         return jsonify({"role": "assistant", "content": "What is your project idea?"})
