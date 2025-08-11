@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 import os, json, re
 import openai
 from datetime import datetime
+import hashlib
 
 agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -33,25 +34,19 @@ def _extract_json_safe(text: str):
 # ===== System Prompt =====
 SPEC_SYSTEM = (
     "You are an elite senior software architect and AI project orchestrator. "
-    "Your job is to output a FINAL, COMPLETE, ZERO-AMBIGUITY spec so multiple independent agents "
-    "can code different files and produce 100% compatible, working software on the first try.\n"
-    "--- UNIVERSAL RULES ---\n"
-    "1. Detect project_type automatically.\n"
-    "2. ALWAYS include these files:\n"
-    "   - shared_schemas.py: all cross-agent types as Python dataclasses (or lang-appropriate equivalents).\n"
-    "   - protocol_schemas.py: Pydantic/JSON Schema definitions for all inter-agent messages.\n"
-    "   - errors.py: shared error classes + error codes.\n"
-    "   - interface_stub_files: complete files with exact imports, full type hints, docstrings, pre/postconditions.\n"
-    "   - integration_tests/*.py: validate protocol compliance, type usage, error handling, edge cases.\n"
-    "   - .flake8 or pyproject.toml: enforce naming, imports, and formatting.\n"
-    "3. integration_tests must:\n"
-    "   - Fail if any agent’s output violates a protocol schema.\n"
-    "   - Fail if any agent redefines shared types instead of importing them.\n"
-    "   - Cover happy path + all major failure modes.\n"
-    "4. inter_agent_protocols must include exact JSON schema, sample messages, and validation rules.\n"
-    "5. No placeholder code. Every field/function/type must be fully specified.\n"
-    "6. All naming must match exactly across modules.\n"
-    "7. Output STRICT JSON ONLY — no prose, no markdown.\n"
+    "Your mission is to produce a FINAL, COMPLETE, ZERO-AMBIGUITY multi-agent specification "
+    "that guarantees all generated code is 100% compatible, even across 100+ independent agents.\n"
+    "--- CORE RULES ---\n"
+    "1. Detect project_type from description (web_app, ai_ml_model, blockchain, mobile_app, cli_tool, game, data_pipeline, etc.).\n"
+    "2. Use user preferences as hints, not hard locks — adapt them reasonably to the domain.\n"
+    "3. Define ALL shared types in shared_schemas as strict dataclasses or equivalents.\n"
+    "4. All interface_stub_files must import shared types — NO redefining types locally.\n"
+    "5. Include import enforcement, round-trip tests, and contract hash lock tests in integration_tests.\n"
+    "6. Output STRICT JSON ONLY — no prose, no markdown.\n"
+    "--- REQUIRED FIELDS ---\n"
+    "global_naming_contract, data_dictionary, shared_schemas, protocol_schemas, errors_module, "
+    "interface_stub_files, agent_blueprint, api_contracts, db_schema, domain_specific, "
+    "inter_agent_protocols, dependency_graph, execution_plan, integration_tests, test_cases."
 )
 
 # ===== Spec Template =====
@@ -59,9 +54,9 @@ SPEC_TEMPLATE = """
 Project: {project}
 Preferences/Requirements: {clarifications}
 
-Produce STRICT JSON with the following structure:
+Produce STRICT JSON:
 {{
-  "version": "8.0",
+  "version": "8.1",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
   "description": "<detailed summary>",
@@ -71,8 +66,8 @@ Produce STRICT JSON with the following structure:
   "global_naming_contract": {{}},
   "data_dictionary": [],
   "shared_schemas": "code for shared_schemas.py",
-  "protocol_schemas": "code for protocol_schemas.py",
-  "errors_module": "code for errors.py",
+  "protocol_schemas": "Pydantic/BaseModel schemas for inter-agent communication",
+  "errors_module": "Custom exception classes",
   "interface_stub_files": [
     {{"path": "", "code": ""}}
   ],
@@ -84,9 +79,19 @@ Produce STRICT JSON with the following structure:
   "dependency_graph": [],
   "execution_plan": [],
   "integration_tests": [
-    {{"path": "", "code": ""}}
+    {{
+      "path": "test_import_enforcement.py",
+      "code": "# Ensures all agents import shared types, no local redeclaration"
+    }},
+    {{
+      "path": "test_round_trip_protocols.py",
+      "code": "# Ensures output from one agent passes into another without transformation"
+    }},
+    {{
+      "path": "test_contract_hash_lock.py",
+      "code": "# Checks shared_schemas and stubs match original contract hash"
+    }}
   ],
-  "style_config": "code for .flake8 or pyproject.toml",
   "test_cases": []
 }}
 """
@@ -139,7 +144,7 @@ def orchestrator():
         session["stage"] = "clarifications"
         return jsonify({
             "role": "assistant",
-            "content": "Do you have any preferences, requirements, or constraints for the implementation?"
+            "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"
         })
 
     # Stage 2: Get preferences and generate spec
@@ -152,7 +157,7 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    # Stage 3: Done — auto-reset for new project
+    # Stage 3: Done — reset for new project
     if session["stage"] == "done":
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
         return jsonify({"role": "assistant", "content": "What is your project idea?"})
