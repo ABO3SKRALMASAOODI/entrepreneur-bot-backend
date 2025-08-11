@@ -216,7 +216,6 @@ def generate_spec(project: str, design: str):
 
     return spec
 
-
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
@@ -227,39 +226,37 @@ def orchestrator():
     project = body.get("project", "").strip()
     design = body.get("design", "").strip()
 
+    # Always ensure session exists
     if user_id not in user_sessions:
-        user_sessions[user_id] = {"stage": "project", "project": "", "design": ""}
+        user_sessions[user_id] = {"stage": None, "project": "", "design": ""}
 
     session = user_sessions[user_id]
 
-    # Stage 1: Get project idea
+    # If no stage, try to skip the Q&A flow if both values provided
+    if not session["stage"]:
+        if project and design:
+            session.update({"stage": "done", "project": project, "design": design})
+        elif project:
+            session.update({"stage": "design", "project": project})
+        else:
+            session["stage"] = "project"
+
+    # Stage: ask for project
     if session["stage"] == "project":
         if not project:
-            return jsonify({
-                "role": "assistant",
-                "content": "What is your project idea?"
-            })
+            return jsonify({"role": "assistant", "content": "What is your project idea?"})
         session["project"] = project
         session["stage"] = "design"
-        return jsonify({
-            "role": "assistant",
-            "content": "Do you have preferences for design style, colors, layout, branding, tone, or accessibility?"
-        })
+        return jsonify({"role": "assistant", "content": "Do you have preferences for design style, colors, layout, branding, tone, or accessibility?"})
 
-    # Stage 2: Get design preferences and generate spec
+    # Stage: ask for design, then generate spec
     if session["stage"] == "design":
         session["design"] = design if design else "no preference"
         session["stage"] = "done"
 
-        try:
-            spec = generate_spec(session["project"], session["design"])
-            # Show full spec directly in the response
-            return jsonify({
-                "role": "assistant",
-                "content": f"✅ Full project spec generated:\n\n{json.dumps(spec, indent=2)}"
-            })
-        except Exception as e:
-            return jsonify({
-                "role": "assistant",
-                "content": f"❌ Failed to generate spec: {e}"
-            })
+    # Stage: done → always generate spec
+    try:
+        spec = generate_spec(session["project"], session["design"] or "no preference")
+        return jsonify({"role": "assistant", "content": f"✅ Full project spec generated:\n\n{json.dumps(spec, indent=2)}"})
+    except Exception as e:
+        return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
