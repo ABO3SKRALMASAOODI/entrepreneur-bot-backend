@@ -8,9 +8,9 @@ from typing import Dict, Any
 agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# ===== Persistent Storage =====
 PROJECT_STATE_FILE = Path("project_state.json")
 
+# ===== Persistent Storage =====
 def load_state():
     if PROJECT_STATE_FILE.exists():
         with open(PROJECT_STATE_FILE, "r") as f:
@@ -23,7 +23,7 @@ def save_state(state):
 
 project_state = load_state()
 
-# ===== In-memory session store =====
+# ===== Session store =====
 user_sessions = {}
 
 # ===== JSON extractor =====
@@ -85,20 +85,17 @@ CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 # ===== System Prompt =====
 SPEC_SYSTEM = (
     "You are the most advanced multi-agent project orchestrator in the universe. "
-    "Your mission is to produce a FINAL, COMPLETE, ZERO-AMBIGUITY universal specification "
+    "You must produce a FINAL, COMPLETE, ZERO-AMBIGUITY universal specification "
     "that ensures perfect compatibility across 100+ agents (1 per file) for ANY project type.\n"
-    "--- ABSOLUTE RULES ---\n"
-    "1. Treat ALL user-provided preferences or requirements as immutable constraints. "
-    "They must appear in the final JSON exactly as given.\n"
-    "2. Generate a file-per-agent mapping in `agent_blueprint` with unique scopes and no overlap.\n"
-    "3. All files must import from shared_schemas and follow the same global naming contract.\n"
-    "4. Include a function_contract_manifest with every function's name, params, returns, and errors.\n"
-    "5. Integration tests must enforce schema hash, manifest compliance, and message round-trip integrity.\n"
-    "6. Output STRICT JSON ONLY.\n"
-    "--- REQUIRED OUTPUT KEYS ---\n"
-    "global_naming_contract, data_dictionary, shared_schemas, protocol_schemas, errors_module, "
+    "--- RULES ---\n"
+    "1. All user-provided preferences or requirements are immutable and must be included in the spec.\n"
+    "2. Generate file-per-agent mapping in `agent_blueprint` with unique scope, file path, and dependencies.\n"
+    "3. Populate all keys: global_naming_contract, data_dictionary, shared_schemas, protocol_schemas, errors_module, "
     "function_contract_manifest, interface_stub_files, agent_blueprint, api_contracts, db_schema, domain_specific, "
-    "inter_agent_protocols, dependency_graph, execution_plan, integration_tests, test_cases."
+    "inter_agent_protocols, dependency_graph, execution_plan, integration_tests, test_cases.\n"
+    "4. Function manifest must list every function for every file.\n"
+    "5. Integration tests must validate schema hash, manifest compliance, protocol round-trips.\n"
+    "6. Output STRICT JSON ONLY."
 )
 
 # ===== Spec Template =====
@@ -108,7 +105,7 @@ Preferences/Requirements: {clarifications}
 
 Produce STRICT JSON:
 {{
-  "version": "10.0",
+  "version": "11.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
   "description": "<comprehensive summary>",
@@ -147,21 +144,24 @@ Produce STRICT JSON:
 }}
 """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
-# ===== Post-Generation Constraint Lock =====
+# ===== Constraint Enforcer =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
     """Ensure user clarifications are reflected in the spec."""
-    if "domain_specific" in spec and clarifications.strip():
-        if "user_constraints" not in spec["domain_specific"]:
-            spec["domain_specific"]["user_constraints"] = clarifications
+    if clarifications.strip():
+        spec["domain_specific"]["user_constraints"] = clarifications
+        if "description" in spec and clarifications not in spec["description"]:
+            spec["description"] += f" | User constraints: {clarifications}"
     return spec
+
+# ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
     filled = SPEC_TEMPLATE.replace("{project}", project).replace("{clarifications}", clarifications).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
     try:
         resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # switched from gpt-5 to gpt-4o-mini
-            temperature=0.05,     # allowed here
+            model="gpt-4o-mini",
+            temperature=0.05,
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": filled}
