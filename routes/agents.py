@@ -5,7 +5,11 @@ from datetime import datetime
 
 agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# ===== In-memory session store =====
+# Move this here so it's defined before orchestrator() uses it
 user_sessions = {}
+
 
 # ===== JSON extractor =====
 def _extract_json_safe(text: str):
@@ -26,7 +30,6 @@ def _extract_json_safe(text: str):
             except Exception:
                 continue
     return None
-
 
 # ===== System Prompt =====
 SPEC_SYSTEM = (
@@ -189,8 +192,6 @@ Produce STRICT JSON:
 }
 
 """
-
-# ===== Spec Generator =====
 # ===== Spec Generator =====
 def generate_spec(project: str, design: str):
     filled = SPEC_TEMPLATE.replace("{project}", project).replace("{design}", design).replace(
