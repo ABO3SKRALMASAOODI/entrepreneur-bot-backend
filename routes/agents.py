@@ -7,12 +7,11 @@ agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ===== In-memory session store =====
-# Move this here so it's defined before orchestrator() uses it
 user_sessions = {}
-
 
 # ===== JSON extractor =====
 def _extract_json_safe(text: str):
+    """Extract JSON safely from LLM output."""
     if not text:
         return None
     s = text.strip()
@@ -34,25 +33,36 @@ def _extract_json_safe(text: str):
 # ===== System Prompt =====
 SPEC_SYSTEM = (
     "You are an elite senior software architect and AI project orchestrator. "
-    "You must produce a FINAL, COMPLETE, ZERO-AMBIGUITY multi-agent project specification. "
-    "Agents will NOT make creative or technical choices — every single detail must be here."
-    "\n--- RULES ---\n"
-    "1. Always first check if design/style/branding preferences are provided. "
-    "   If not, set them to 'no preference'.\n"
-    "2. Infer ALL technical choices yourself — stack, architecture, versions, dependencies, file tree.\n"
-    "3. Output STRICT JSON ONLY — no prose, no markdown.\n"
-    "4. Define:\n"
-    "   - Global naming contract (variables, constants, functions, classes, DB tables, APIs)\n"
-    "   - Function signatures (name, purpose, parameters with type, return type, example payloads)\n"
-    "   - API endpoints with request/response JSON schema\n"
-    "   - DB schema (tables, columns, types, constraints)\n"
-    "   - File paths with purpose + exact content outline\n"
-    "   - Component structure for frontend (React components, CSS classes)\n"
-    "   - Test cases for every public function\n"
-    "   - Exact agent instructions (must be executable as-is)\n"
-    "5. All naming must match exactly across all modules.\n"
-    "6. If a function is called in one file, define it in another with identical signature.\n"
-    "7. For large outputs, split into JSON chunks but maintain valid structure."
+    "You must produce a FINAL, COMPLETE, ZERO-AMBIGUITY multi-agent project specification "
+    "for ANY type of project (not just websites). Agents will NOT make creative or technical choices — every "
+    "single detail must be here.\n"
+    "--- RULES ---\n"
+    "1. Detect project type from user request. Supported types include:\n"
+    "   web_app, mobile_app, cli_tool, api_service, desktop_app, ai_ml_model, blockchain_project, "
+    "   iot_embedded, game, data_pipeline, hybrid.\n"
+    "2. Adapt spec fields to the project type:\n"
+    "   - Blockchain: consensus, chain config, smart contracts, deployment scripts.\n"
+    "   - AI/ML: model architecture, dataset schema, preprocessing, hyperparameters.\n"
+    "   - CLI: command list, args schema, stdout/stderr formats.\n"
+    "   - Game: engine, assets, physics params, level schema.\n"
+    "3. Define ALL technical choices: languages, frameworks, architecture, versions, dependencies, file tree.\n"
+    "4. Output STRICT JSON ONLY — no prose, no markdown.\n"
+    "5. Must include:\n"
+    "   - global_naming_contract: variables, constants, functions, classes, APIs, commands\n"
+    "   - data_dictionary: all fields/objects with type, format, constraints\n"
+    "   - function_contracts: full signatures, param types, constraints, returns, pre/postconditions, errors, examples\n"
+    "   - agent_blueprint: for EACH agent — responsibilities, coding rules, assigned files, functions to implement, "
+    "                      inter-agent communication format, error handling rules, unit/integration tests\n"
+    "   - api_contracts: endpoints, methods, request/response schema, error cases\n"
+    "   - db_schema: all tables, columns, types, constraints, indexes\n"
+    "   - domain_specific: fields for blockchain/AI/game/etc.\n"
+    "   - inter_agent_protocols: who calls what, with exact JSON schema\n"
+    "   - dependency_graph: task dependencies\n"
+    "   - execution_plan: ordered steps for agents to build the project\n"
+    "   - test_cases: for every public function/module\n"
+    "6. All naming must match exactly across all modules.\n"
+    "7. If referenced anywhere, it MUST be defined.\n"
+    "8. Split into JSON chunks if large, but keep valid JSON."
 )
 
 # ===== Spec Template =====
@@ -61,137 +71,43 @@ Project: {project}
 Design Preferences: {design}
 
 Produce STRICT JSON:
-{
-  "version": "4.0",
+{{
+  "version": "6.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
   "description": "<detailed summary>",
-  "project_type": "web_app",
-  "target_users": ["designers", "small business owners"],
-  "design_preferences": {
-    "style": "no preference",
-    "colors": ["#FFFFFF", "#000000"],
-    "layout": "responsive",
-    "tone": "professional",
-    "branding": "none",
-    "accessibility": "WCAG 2.1 AA"
-  },
-  "tech_stack": {
-    "frontend": {"framework": "React", "version": "18.2.0"},
-    "backend": {"framework": "Flask", "version": "2.3.2"},
-    "languages": ["Python 3.11", "JavaScript ES2022"],
-    "databases": ["PostgreSQL 15"],
-    "tools": ["Docker 24", "Webpack 5"]
-  },
-  "global_naming_contract": {
-    "variables": [
-      {"name": "user_id", "type": "uuid", "description": "Unique user identifier"},
-      {"name": "ALLOWED_FILE_TYPES", "type": "list[str]", "description": "Accepted MIME types for uploads"}
-    ],
-    "functions": [
-      {"name": "upload_design", "description": "Uploads a design"},
-      {"name": "save_to_db", "description": "Persists record to database"}
-    ],
-    "classes": [
-      {"name": "DesignModel", "description": "DB ORM model for designs"}
-    ],
-    "api_endpoints": [
-      "/api/designs",
-      "/api/designs/{id}"
-    ],
-    "events": [
-      "DESIGN_UPLOADED",
-      "UPLOAD_FAILED"
-    ],
-    "css_classes": [
-      "upload-form",
-      "upload-button",
-      "error-message"
-    ]
-  },
-  "function_contracts": [
-    {
-      "name": "upload_design",
-      "defined_in": "src/backend/designs.py",
-      "purpose": "Uploads a new product design to storage and DB",
-      "parameters": [
-        {"name": "file", "type": "binary", "required": true},
-        {"name": "title", "type": "string", "required": true},
-        {"name": "category", "type": "string", "required": true}
-      ],
-      "returns": {"status": "string", "design_id": "uuid"},
-      "example_call": "upload_design(file, title, category)",
-      "example_output": {"status": "success", "design_id": "uuid"}
-    },
-    {
-      "name": "save_to_db",
-      "defined_in": "src/backend/db.py",
-      "parameters": [
-        {"name": "record", "type": "object", "required": true}
-      ],
-      "returns": {"id": "uuid"}
-    }
-  ],
-  "api_contracts": [
-    {
-      "name": "CreateDesign",
-      "method": "POST",
-      "path": "/api/designs",
-      "request": {
-        "headers": {"Content-Type": "multipart/form-data"},
-        "body": {"file": "binary", "title": "string", "category": "string"}
-      },
-      "response": {
-        "200": {"design_id": "uuid"},
-        "400": {"error": "string"}
-      }
-    }
-  ],
-  "db_schema": [
-    {
-      "table": "designs",
-      "columns": [
-        {"name": "id", "type": "uuid", "constraints": "PRIMARY KEY"},
-        {"name": "title", "type": "varchar(255)", "constraints": "NOT NULL"},
-        {"name": "category", "type": "varchar(100)", "constraints": "NOT NULL"}
-      ],
-      "indexes": ["title", "category"]
-    }
-  ],
-  "file_tree": [
-    {"path": "src/main.py", "purpose": "Flask entrypoint", "imports": ["flask", "src.backend.designs"], "functions": ["create_app"]},
-    {"path": "src/backend/designs.py", "purpose": "Design API logic", "imports": ["save_to_db", "S3Uploader"], "functions": ["upload_design"]},
-    {"path": "src/backend/db.py", "purpose": "Database helpers", "functions": ["save_to_db"]}
-  ],
-  "inter_agent_protocols": [
-    {
-      "protocol_id": "p1",
-      "from_agent": "frontend",
-      "to_agent": "backend",
-      "trigger_event": "form_submit",
-      "function": "upload_design",
-      "request_schema": {"file": "binary", "title": "string", "category": "string"},
-      "response_schema": {"status": "string", "design_id": "uuid"},
-      "error_schema": {"error": "string"}
-    }
-  ],
-  "simulation": {
-    "steps": [
-      {"step": "frontend calls backend.upload_design()", "expected": "status=success, design_id != null"},
-      {"step": "backend calls save_to_db()", "expected": "id returned"}
-    ],
-    "result": "pass"
-  },
-  "tasks": [
-    {"id": "t1", "file": "src/backend/designs.py", "agent": "backend", "instructions": "Implement upload_design() exactly per function_contracts[0]"},
-    {"id": "t2", "file": "src/frontend/components/UploadForm.js", "agent": "frontend", "instructions": "Submit form data matching /api/designs request schema"}
-  ],
-  "test_cases": [
-    {"function": "upload_design", "tests": [{"name": "valid_upload", "input": {...}, "expected": {...}}]}
-  ]
-}
-
+  "project_type": "<auto-detected>",
+  "target_users": [],
+  "design_preferences": {{
+    "style": "{design}",
+    "colors": [],
+    "layout": "",
+    "tone": "",
+    "branding": "",
+    "accessibility": ""
+  }},
+  "tech_stack": {{}},
+  "global_naming_contract": {{}},
+  "data_dictionary": [],
+  "function_contracts": [],
+  "api_contracts": [],
+  "db_schema": [],
+  "domain_specific": {{
+    "ai_ml_model": {{"model_architecture": {{}}, "dataset": {{}}, "training_pipeline": {{}}, "evaluation_metrics": []}},
+    "blockchain_project": {{"consensus": "", "chain_config": {{}}, "smart_contracts": [], "deployment_scripts": []}},
+    "cli_tool": {{"commands": [], "args_schema": {{}}, "output_formats": {}}}, 
+    "game": {{"engine": "", "assets": [], "levels": [], "physics": {}}}, 
+    "iot_embedded": {{"hardware": {{}}, "firmware_modules": [], "communication_protocols": []}}
+  }},
+  "agent_blueprint": [],
+  "inter_agent_protocols": [],
+  "dependency_graph": [],
+  "execution_plan": [],
+  "file_tree": [],
+  "test_cases": []
+}}
 """
+
 # ===== Spec Generator =====
 def generate_spec(project: str, design: str):
     filled = SPEC_TEMPLATE.replace("{project}", project).replace("{design}", design).replace(
@@ -199,8 +115,8 @@ def generate_spec(project: str, design: str):
     )
     try:
         resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            temperature=0.15,
+            model="gpt-4o",
+            temperature=0.05,
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": filled}
@@ -213,10 +129,9 @@ def generate_spec(project: str, design: str):
     spec = _extract_json_safe(raw)
     if not spec:
         raise ValueError("❌ Failed to parse JSON spec")
-
     return spec
 
-
+# ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
@@ -232,34 +147,20 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
-    # Stage 1: Get project idea
+    # Stage 1: Ask for project
     if session["stage"] == "project":
         if not project:
-            return jsonify({
-                "role": "assistant",
-                "content": "What is your project idea?"
-            })
+            return jsonify({"role": "assistant", "content": "What is your project idea?"})
         session["project"] = project
         session["stage"] = "design"
-        return jsonify({
-            "role": "assistant",
-            "content": "Do you have preferences for design style, colors, layout, branding, tone, or accessibility?"
-        })
+        return jsonify({"role": "assistant", "content": "Any preferences for style, colors, layout, branding, tone, or accessibility?"})
 
-    # Stage 2: Get design preferences and generate spec
+    # Stage 2: Ask for design and generate spec
     if session["stage"] == "design":
         session["design"] = design if design else "no preference"
         session["stage"] = "done"
-
         try:
             spec = generate_spec(session["project"], session["design"])
-            # Show full spec directly in the response
-            return jsonify({
-                "role": "assistant",
-                "content": f"✅ Full project spec generated:\n\n{json.dumps(spec, indent=2)}"
-            })
+            return jsonify({"role": "assistant", "content": json.dumps(spec, indent=2)})
         except Exception as e:
-            return jsonify({
-                "role": "assistant",
-                "content": f"❌ Failed to generate spec: {e}"
-            })
+            return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
