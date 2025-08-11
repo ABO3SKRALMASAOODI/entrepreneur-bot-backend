@@ -59,42 +59,74 @@ Design Preferences: {design}
 
 Produce STRICT JSON:
 {
-  "version": "3.0",
+  "version": "4.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
-  "description": "<one sentence summary>",
-  "project_type": "<web_app|cli_tool|backend_api|ml_system|automation|game|desktop_app|other>",
-  "target_users": ["<group1>", "<group2>"],
+  "description": "<detailed summary>",
+  "project_type": "web_app",
+  "target_users": ["designers", "small business owners"],
   "design_preferences": {
-    "style": "<UI style or 'no preference'>",
-    "colors": ["<hex or name>"],
-    "layout": "<layout type>",
-    "tone": "<tone of text>",
-    "branding": "<brand guidelines>",
-    "accessibility": "<notes>"
+    "style": "no preference",
+    "colors": ["#FFFFFF", "#000000"],
+    "layout": "responsive",
+    "tone": "professional",
+    "branding": "none",
+    "accessibility": "WCAG 2.1 AA"
   },
   "tech_stack": {
-    "frontend": {"framework": "<string>", "version": "<semver>"},
-    "backend": {"framework": "<string>", "version": "<semver>"},
-    "languages": ["<lang version>"],
-    "databases": ["<db>"],
-    "tools": ["<build tools>"]
+    "frontend": {"framework": "React", "version": "18.2.0"},
+    "backend": {"framework": "Flask", "version": "2.3.2"},
+    "languages": ["Python 3.11", "JavaScript ES2022"],
+    "databases": ["PostgreSQL 15"],
+    "tools": ["Docker 24", "Webpack 5"]
   },
   "global_naming_contract": {
-    "variables": [{"name": "user_id", "type": "uuid", "description": "Unique user ID"}],
-    "functions": [{"name": "upload_design", "description": "Uploads a design"}],
-    "classes": [{"name": "DesignModel", "description": "Represents a design"}],
-    "api_endpoints": ["/api/designs"]
+    "variables": [
+      {"name": "user_id", "type": "uuid", "description": "Unique user identifier"},
+      {"name": "ALLOWED_FILE_TYPES", "type": "list[str]", "description": "Accepted MIME types for uploads"}
+    ],
+    "functions": [
+      {"name": "upload_design", "description": "Uploads a design"},
+      {"name": "save_to_db", "description": "Persists record to database"}
+    ],
+    "classes": [
+      {"name": "DesignModel", "description": "DB ORM model for designs"}
+    ],
+    "api_endpoints": [
+      "/api/designs",
+      "/api/designs/{id}"
+    ],
+    "events": [
+      "DESIGN_UPLOADED",
+      "UPLOAD_FAILED"
+    ],
+    "css_classes": [
+      "upload-form",
+      "upload-button",
+      "error-message"
+    ]
   },
   "function_contracts": [
     {
       "name": "upload_design",
       "defined_in": "src/backend/designs.py",
       "purpose": "Uploads a new product design to storage and DB",
-      "inputs": {"file": "binary", "title": "string", "category": "string"},
-      "outputs": {"status": "string", "design_id": "uuid"},
-      "example_input": {"file": "<binary data>", "title": "Summer Dress", "category": "Dresses"},
-      "example_output": {"status": "success", "design_id": "550e8400-e29b-41d4-a716-446655440000"}
+      "parameters": [
+        {"name": "file", "type": "binary", "required": true},
+        {"name": "title", "type": "string", "required": true},
+        {"name": "category", "type": "string", "required": true}
+      ],
+      "returns": {"status": "string", "design_id": "uuid"},
+      "example_call": "upload_design(file, title, category)",
+      "example_output": {"status": "success", "design_id": "uuid"}
+    },
+    {
+      "name": "save_to_db",
+      "defined_in": "src/backend/db.py",
+      "parameters": [
+        {"name": "record", "type": "object", "required": true}
+      ],
+      "returns": {"id": "uuid"}
     }
   ],
   "api_contracts": [
@@ -102,8 +134,14 @@ Produce STRICT JSON:
       "name": "CreateDesign",
       "method": "POST",
       "path": "/api/designs",
-      "request": {"body": {"file": "binary", "title": "string", "category": "string"}},
-      "response": {"200": {"design_id": "uuid"}, "400": {"error": "string"}}
+      "request": {
+        "headers": {"Content-Type": "multipart/form-data"},
+        "body": {"file": "binary", "title": "string", "category": "string"}
+      },
+      "response": {
+        "200": {"design_id": "uuid"},
+        "400": {"error": "string"}
+      }
     }
   ],
   "db_schema": [
@@ -113,33 +151,43 @@ Produce STRICT JSON:
         {"name": "id", "type": "uuid", "constraints": "PRIMARY KEY"},
         {"name": "title", "type": "varchar(255)", "constraints": "NOT NULL"},
         {"name": "category", "type": "varchar(100)", "constraints": "NOT NULL"}
-      ]
+      ],
+      "indexes": ["title", "category"]
     }
   ],
   "file_tree": [
-    {"path": "src/main.py", "purpose": "Main backend entrypoint"},
-    {"path": "src/backend/designs.py", "purpose": "Design-related backend logic"}
+    {"path": "src/main.py", "purpose": "Flask entrypoint", "imports": ["flask", "src.backend.designs"], "functions": ["create_app"]},
+    {"path": "src/backend/designs.py", "purpose": "Design API logic", "imports": ["save_to_db", "S3Uploader"], "functions": ["upload_design"]},
+    {"path": "src/backend/db.py", "purpose": "Database helpers", "functions": ["save_to_db"]}
   ],
-  "tasks": [
+  "inter_agent_protocols": [
     {
-      "id": "t1",
-      "file": "src/backend/designs.py",
-      "role": "Backend Developer",
-      "agent": "backend",
-      "instructions": "Write upload_design() exactly as per function_contracts[0], using S3Uploader from src/backend/storage.py",
-      "depends_on": []
+      "protocol_id": "p1",
+      "from_agent": "frontend",
+      "to_agent": "backend",
+      "trigger_event": "form_submit",
+      "function": "upload_design",
+      "request_schema": {"file": "binary", "title": "string", "category": "string"},
+      "response_schema": {"status": "string", "design_id": "uuid"},
+      "error_schema": {"error": "string"}
     }
+  ],
+  "simulation": {
+    "steps": [
+      {"step": "frontend calls backend.upload_design()", "expected": "status=success, design_id != null"},
+      {"step": "backend calls save_to_db()", "expected": "id returned"}
+    ],
+    "result": "pass"
+  },
+  "tasks": [
+    {"id": "t1", "file": "src/backend/designs.py", "agent": "backend", "instructions": "Implement upload_design() exactly per function_contracts[0]"},
+    {"id": "t2", "file": "src/frontend/components/UploadForm.js", "agent": "frontend", "instructions": "Submit form data matching /api/designs request schema"}
   ],
   "test_cases": [
-    {
-      "function": "upload_design",
-      "tests": [
-        {"name": "ValidUpload", "input": {"file": "<valid>", "title": "Test", "category": "Dresses"}, "expected": {"status": "success"}},
-        {"name": "InvalidFileType", "input": {"file": "<.txt>", "title": "Test", "category": "Dresses"}, "expected": {"status": "error"}}
-      ]
-    }
+    {"function": "upload_design", "tests": [{"name": "valid_upload", "input": {...}, "expected": {...}}]}
   ]
 }
+
 """
 
 # ===== Spec Generator =====
