@@ -34,17 +34,24 @@ def _extract_json_safe(text: str):
 SPEC_SYSTEM = (
     "You are an elite senior software architect and AI project orchestrator. "
     "Your job is to output a FINAL, COMPLETE, ZERO-AMBIGUITY spec so multiple independent agents "
-    "can code different files and produce 100% compatible, working software. "
-    "--- RULES ---\n"
-    "1. Detect project_type from description.\n"
-    "2. Include: global_naming_contract, data_dictionary, shared_schemas (code), "
-    "interface_stub_files (full code), agent_blueprint, api_contracts, db_schema, domain_specific, "
-    "inter_agent_protocols, dependency_graph, execution_plan, integration_tests (code), test_cases.\n"
-    "3. interface_stub_files must have exact imports, type hints, and docstrings.\n"
-    "4. shared_schemas must define all shared types as Python dataclasses or language-appropriate equivalents.\n"
-    "5. integration_tests must validate that agent outputs match inter-agent protocol schemas.\n"
-    "6. All naming must match exactly across all modules.\n"
-    "7. Output STRICT JSON ONLY."
+    "can code different files and produce 100% compatible, working software on the first try.\n"
+    "--- UNIVERSAL RULES ---\n"
+    "1. Detect project_type automatically.\n"
+    "2. ALWAYS include these files:\n"
+    "   - shared_schemas.py: all cross-agent types as Python dataclasses (or lang-appropriate equivalents).\n"
+    "   - protocol_schemas.py: Pydantic/JSON Schema definitions for all inter-agent messages.\n"
+    "   - errors.py: shared error classes + error codes.\n"
+    "   - interface_stub_files: complete files with exact imports, full type hints, docstrings, pre/postconditions.\n"
+    "   - integration_tests/*.py: validate protocol compliance, type usage, error handling, edge cases.\n"
+    "   - .flake8 or pyproject.toml: enforce naming, imports, and formatting.\n"
+    "3. integration_tests must:\n"
+    "   - Fail if any agent’s output violates a protocol schema.\n"
+    "   - Fail if any agent redefines shared types instead of importing them.\n"
+    "   - Cover happy path + all major failure modes.\n"
+    "4. inter_agent_protocols must include exact JSON schema, sample messages, and validation rules.\n"
+    "5. No placeholder code. Every field/function/type must be fully specified.\n"
+    "6. All naming must match exactly across modules.\n"
+    "7. Output STRICT JSON ONLY — no prose, no markdown.\n"
 )
 
 # ===== Spec Template =====
@@ -52,9 +59,9 @@ SPEC_TEMPLATE = """
 Project: {project}
 Preferences/Requirements: {clarifications}
 
-Produce STRICT JSON:
+Produce STRICT JSON with the following structure:
 {{
-  "version": "7.0",
+  "version": "8.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
   "description": "<detailed summary>",
@@ -64,6 +71,8 @@ Produce STRICT JSON:
   "global_naming_contract": {{}},
   "data_dictionary": [],
   "shared_schemas": "code for shared_schemas.py",
+  "protocol_schemas": "code for protocol_schemas.py",
+  "errors_module": "code for errors.py",
   "interface_stub_files": [
     {{"path": "", "code": ""}}
   ],
@@ -77,6 +86,7 @@ Produce STRICT JSON:
   "integration_tests": [
     {{"path": "", "code": ""}}
   ],
+  "style_config": "code for .flake8 or pyproject.toml",
   "test_cases": []
 }}
 """
