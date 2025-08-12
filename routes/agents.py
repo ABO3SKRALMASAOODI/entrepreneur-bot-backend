@@ -82,22 +82,26 @@ class ServiceRequest:
 
 CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
-# ===== System Prompt =====
+# ===== Universal Orchestrator Instructions =====
 SPEC_SYSTEM = (
-    "You are the most advanced universal multi-agent project orchestrator in the universe. "
-    "Your goal is to produce a FINAL, COMPLETE, ZERO-AMBIGUITY specification "
-    "that guarantees compatibility across 100+ agents (1 per file) for ANY project type.\n"
-    "--- RULES ---\n"
-    "1. All user-provided preferences/requirements are immutable and must appear in relevant spec fields.\n"
-    "2. Automatically generate file-per-agent mapping with unique scopes, paths, dependencies.\n"
-    "3. Populate all keys: global_naming_contract, data_dictionary, shared_schemas, protocol_schemas, errors_module, "
-    "function_contract_manifest, interface_stub_files, agent_blueprint, api_contracts, db_schema, domain_specific, "
-    "inter_agent_protocols, dependency_graph, execution_plan, integration_tests, test_cases.\n"
-    "4. Scale the output so complex projects have 100–200+ agents/files.\n"
-    "5. All files import shared_schemas; no local type duplication.\n"
-    "6. Function manifest lists every function in every file with params, return type, errors.\n"
-    "7. Integration tests must validate schema hash, manifest compliance, protocol round-trips.\n"
-    "8. Output STRICT JSON ONLY."
+    "You are the most advanced universal multi-agent project orchestrator in existence. "
+    "Your job is to output a FINAL, COMPLETE, ZERO-AMBIGUITY multi-file specification so that "
+    "100+ independent coding agents can implement their parts and when combined, the system will run flawlessly "
+    "without manual fixes — regardless of project type.\n"
+    "--- UNIVERSAL COMPATIBILITY RULES ---\n"
+    "1. Define ALL data structures with exact field names, types, nullability, default values, constraints.\n"
+    "2. For any communication (API, function calls, events, message passing), define the exact request/response formats, "
+    "including required fields, optional fields, ordering, and data encoding.\n"
+    "3. All constants, enums, and configuration keys must be centralized in shared_schemas or constants module — no file-specific duplicates.\n"
+    "4. Function contracts must include: purpose, input/output types, preconditions, postconditions, possible errors, side effects.\n"
+    "5. Inter-agent protocols must have clear step-by-step flow sequences, success/failure branches, and error handling.\n"
+    "6. Dependency graph must ensure no circular imports and all shared imports come from shared_schemas.\n"
+    "7. Test cases must validate: data structure integrity, protocol compliance, cross-agent integration.\n"
+    "8. Scale to 100–200 agents for large projects by decomposing into the smallest coherent responsibilities.\n"
+    "9. Ensure that the spec can be implemented in isolation by multiple agents without ambiguity — "
+    "if multiple interpretations are possible, add clarifying details.\n"
+    "10. Do NOT hardcode domain-specific algorithms unless provided by the user; instead, specify required properties so implementations remain compatible.\n"
+    "11. Populate EVERY spec section — never leave {} or [].\n"
 )
 
 # ===== Spec Template =====
@@ -110,24 +114,24 @@ Produce STRICT JSON:
   "version": "12.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
-  "description": "<comprehensive summary>",
-  "project_type": "<auto-detected>",
-  "target_users": [],
-  "tech_stack": {{}},
-  "global_naming_contract": {{}},
-  "data_dictionary": [],
+  "description": "<comprehensive summary of architecture, purpose, scale, and scope>",
+  "project_type": "<auto-detected type>",
+  "target_users": ["<primary user groups>"],
+  "tech_stack": {{"language": "<main language>", "framework": "<main framework>", "database": "<db if any>"}},
+  "global_naming_contract": {{"agent_prefix": "<prefix>", "entity_suffix": "_entity", "service_suffix": "_service", "protocol_suffix": "_protocol", "test_suffix": "_test"}},
+  "data_dictionary": [{{"name": "<field>", "type": "<type>", "description": "<meaning>"}}],
   "shared_schemas": {shared_schemas},
-  "protocol_schemas": "Detailed schemas for all inter-agent messages with versioning",
-  "errors_module": "Custom exception classes extending BaseError",
-  "function_contract_manifest": {{}},
-  "interface_stub_files": [],
-  "agent_blueprint": [],
-  "api_contracts": [],
-  "db_schema": [],
-  "domain_specific": {{}},
-  "inter_agent_protocols": [],
-  "dependency_graph": [],
-  "execution_plan": [],
+  "protocol_schemas": "<Detailed schemas for all inter-agent messages with versioning and format>",
+  "errors_module": "<Custom exception classes extending BaseError with codes and messages>",
+  "function_contract_manifest": {{"functions": [{{"file": "<filename>", "name": "<func_name>", "description": "<what it does>", "params": {{"param": "<type>"}}, "return_type": "<type>", "errors": ["<error_code>"]}}]}},
+  "interface_stub_files": [{{"file": "<filename>", "description": "<interface purpose>"}}],
+  "agent_blueprint": [{{"name": "<AgentName>", "description": "<Role in system>"}}],
+  "api_contracts": [{{"endpoint": "<url>", "method": "<HTTP method>", "request_schema": "<schema>", "response_schema": "<schema>"}}],
+  "db_schema": [{{"table": "<table>", "columns": [{{"name": "<col>", "type": "<type>", "constraints": "<constraints>"}}]}}],
+  "domain_specific": {{"user_constraints": "{clarifications}"}},
+  "inter_agent_protocols": [{{"protocol": "<name>", "description": "<flow description>"}}],
+  "dependency_graph": [{{"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}}]],
+  "execution_plan": [{{"step": 1, "description": "<step description>"}}],
   "integration_tests": [
     {{
       "path": "test_schema_hash.py",
@@ -142,13 +146,12 @@ Produce STRICT JSON:
       "code": "# Verifies message formats can be serialized/deserialized without loss"
     }}
   ],
-  "test_cases": []
+  "test_cases": [{{"description": "<test purpose>", "input": "<input>", "expected_output": "<output>"}}]
 }}
 """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
 # ===== Constraint Enforcer =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    """Ensure user clarifications are reflected in the spec."""
     if clarifications.strip():
         spec["domain_specific"]["user_constraints"] = clarifications
         if clarifications not in spec.get("description", ""):

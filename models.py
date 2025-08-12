@@ -67,6 +67,7 @@ def init_db(app):
         ''')
 
         # Other tables...
+       
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS password_reset_codes (
