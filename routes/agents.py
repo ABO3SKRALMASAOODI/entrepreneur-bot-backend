@@ -206,6 +206,7 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
+    # === Stage: Ask for project idea ===
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
@@ -216,20 +217,35 @@ def orchestrator():
             "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"
         })
 
+    # === Stage: Collect clarifications ===
     if session["stage"] == "clarifications":
-        # Keep existing clarifications if user doesn't send new ones
         if clarifications:
             session["clarifications"] = clarifications
         elif not session["clarifications"]:
             session["clarifications"] = "no specific constraints provided"
 
         session["stage"] = "done"
+
         try:
             spec = generate_spec(session["project"], session["clarifications"])
-            return jsonify({"role": "assistant", "content": json.dumps(spec, indent=2)})
+            return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
+    # === Stage: Already done — allow restart or take new constraints ===
     if session["stage"] == "done":
+        # If user sends new clarifications after completion, re-run spec
+        if project:
+            session.update({"stage": "clarifications", "project": project, "clarifications": ""})
+            return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"})
+        elif clarifications:
+            session["clarifications"] = clarifications
+            try:
+                spec = generate_spec(session["project"], session["clarifications"])
+                return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
+            except Exception as e:
+                return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+
+        # Otherwise restart
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
         return jsonify({"role": "assistant", "content": "What is your project idea?"})
