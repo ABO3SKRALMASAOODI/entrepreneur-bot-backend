@@ -102,6 +102,7 @@ SPEC_SYSTEM = (
     "10. Ensure the spec can be implemented in isolation by multiple agents without ambiguity — "
     "if multiple interpretations are possible, add clarifying details.\n"
     "11. Populate EVERY spec section — never leave {} or [].\n"
+    "12. Always output strictly valid JSON. No commentary, markdown, or text outside the JSON.\n"
 )
 
 # ===== Spec Template =====
@@ -162,8 +163,9 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 
 # ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
-    clarifications = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
-    filled = SPEC_TEMPLATE.replace("{project}", project).replace("{clarifications}", clarifications).replace(
+    clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
+    clarifications_safe = json.dumps(clarifications_raw)[1:-1]  # JSON-safe escape
+    filled = SPEC_TEMPLATE.replace("{project}", project).replace("{clarifications}", clarifications_safe).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
     try:
@@ -183,7 +185,7 @@ def generate_spec(project: str, clarifications: str):
     if not spec:
         raise ValueError("❌ Failed to parse JSON spec")
 
-    spec = enforce_constraints(spec, clarifications)
+    spec = enforce_constraints(spec, clarifications_raw)
     project_state[project] = spec
     save_state(project_state)
     return spec
