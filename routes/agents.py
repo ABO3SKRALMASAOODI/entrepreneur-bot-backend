@@ -26,25 +26,18 @@ project_state = load_state()
 # ===== Session store =====
 user_sessions = {}
 
-# ===== JSON extractor =====
-def _extract_json_safe(text: str):
+# ===== Strict JSON extractor =====
+def _extract_json_strict(text: str):
     if not text:
         return None
-    s = text.strip()
-    if s.startswith("```"):
-        s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s, flags=re.MULTILINE).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1:
+        return None
     try:
-        return json.loads(s)
-    except Exception:
-        pass
-    start = min([p for p in [s.find("{"), s.find("[")] if p != -1] or [-1])
-    if start != -1:
-        for end in range(len(s), start, -1):
-            try:
-                return json.loads(s[start:end])
-            except Exception:
-                continue
-    return None
+        return json.loads(text[start:end+1])
+    except json.JSONDecodeError:
+        return None
 
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
@@ -117,7 +110,7 @@ description, domain_specific, agent_blueprint, api_contracts, db_schema, functio
   "version": "12.0",
   "generated_at": "<ISO timestamp>",
   "project": "<short name>",
-  "description": "<comprehensive summary of architecture, purpose, scale, scope, and explicit inclusion of user constraints: {clarifications}>",
+  "description": "<comprehensive summary including: {clarifications}>",
   "project_type": "<auto-detected type>",
   "target_users": ["<primary user groups>"],
   "tech_stack": {{"language": "<main language>", "framework": "<main framework>", "database": "<db if any>"}},
@@ -128,13 +121,13 @@ description, domain_specific, agent_blueprint, api_contracts, db_schema, functio
   "errors_module": "<Custom exception classes extending BaseError with codes and messages>",
   "function_contract_manifest": {{"functions": [{{"file": "<filename>", "name": "<func_name>", "description": "<what it does>", "params": {{"param": "<type>"}}, "return_type": "<type>", "errors": ["<error_code>"]}}]}},
   "interface_stub_files": [{{"file": "<filename>", "description": "<interface purpose>"}}],
-  "agent_blueprint": [{{"name": "<AgentName>", "description": "<Role in system and how it implements: {clarifications}">}}],
+  "agent_blueprint": [{{"name": "<AgentName>", "description": "<Role in system implementing: {clarifications}">}}],
   "api_contracts": [{{"endpoint": "<url>", "method": "<HTTP method>", "request_schema": "<schema>", "response_schema": "<schema>", "notes": "Implements: {clarifications}"}}],
   "db_schema": [{{"table": "<table>", "columns": [{{"name": "<col>", "type": "<type>", "constraints": "<constraints>", "notes": "Derived from: {clarifications}"}}]}}],
   "domain_specific": {{"user_constraints": "{clarifications}"}},
-  "inter_agent_protocols": [{{"protocol": "<name>", "description": "<flow description including: {clarifications}">}}],
+  "inter_agent_protocols": [{{"protocol": "<name>", "description": "<flow including: {clarifications}">}}],
   "dependency_graph": [{{"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"], "notes": "Supports: {clarifications}"}}]],
-  "execution_plan": [{{"step": 1, "description": "<step description implementing: {clarifications}">}}],
+  "execution_plan": [{{"step": 1, "description": "<step implementing: {clarifications}">}}],
   "integration_tests": [
     {{
       "path": "test_schema_hash.py",
@@ -149,7 +142,7 @@ description, domain_specific, agent_blueprint, api_contracts, db_schema, functio
       "code": "# Verifies message formats can be serialized/deserialized without loss"
     }}
   ],
-  "test_cases": [{{"description": "<test purpose aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}}]
+  "test_cases": [{{"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}}]
 }}
 """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
@@ -165,9 +158,11 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 def generate_spec(project: str, clarifications: str):
     clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
     clarifications_safe = json.dumps(clarifications_raw)[1:-1]  # JSON-safe escape
-    filled = SPEC_TEMPLATE.replace("{project}", project).replace("{clarifications}", clarifications_safe).replace(
+    project_safe = json.dumps(project)[1:-1]
+    filled = SPEC_TEMPLATE.replace("{project}", project_safe).replace("{clarifications}", clarifications_safe).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
+
     try:
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
@@ -181,9 +176,23 @@ def generate_spec(project: str, clarifications: str):
         raise RuntimeError(f"OpenAI API error: {e}")
 
     raw = resp.choices[0].message["content"]
-    spec = _extract_json_safe(raw)
+    spec = _extract_json_strict(raw)
+
+    # Retry if not valid JSON
     if not spec:
-        raise ValueError("❌ Failed to parse JSON spec")
+        retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            temperature=0.05,
+            messages=[
+                {"role": "system", "content": SPEC_SYSTEM},
+                {"role": "user", "content": retry_prompt}
+            ],
+        )
+        raw = resp.choices[0].message["content"]
+        spec = _extract_json_strict(raw)
+        if not spec:
+            raise ValueError("❌ Failed to parse JSON spec after retry")
 
     spec = enforce_constraints(spec, clarifications_raw)
     project_state[project] = spec
@@ -206,18 +215,13 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
-    # === Stage: Ask for project idea ===
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
         session["project"] = project
         session["stage"] = "clarifications"
-        return jsonify({
-            "role": "assistant",
-            "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"
-        })
+        return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"})
 
-    # === Stage: Collect clarifications ===
     if session["stage"] == "clarifications":
         if clarifications:
             session["clarifications"] = clarifications
@@ -232,9 +236,7 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    # === Stage: Already done — allow restart or take new constraints ===
     if session["stage"] == "done":
-        # If user sends new clarifications after completion, re-run spec
         if project:
             session.update({"stage": "clarifications", "project": project, "clarifications": ""})
             return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"})
@@ -246,6 +248,5 @@ def orchestrator():
             except Exception as e:
                 return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-        # Otherwise restart
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
         return jsonify({"role": "assistant", "content": "What is your project idea?"})
