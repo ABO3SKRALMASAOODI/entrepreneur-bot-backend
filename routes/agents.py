@@ -236,17 +236,26 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    if session["stage"] == "done":
-        if project:
-            session.update({"stage": "clarifications", "project": project, "clarifications": ""})
-            return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints for the implementation? (Optional)"})
-        elif clarifications:
-            session["clarifications"] = clarifications
-            try:
-                spec = generate_spec(session["project"], session["clarifications"])
-                return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
-            except Exception as e:
-                return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+    if session["stage"] == "clarifications":
+    # Accept constraints from either field
+    incoming_constraints = clarifications or project
+    if incoming_constraints and incoming_constraints.strip():
+        session["clarifications"] = incoming_constraints.strip()
 
-        user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
-        return jsonify({"role": "assistant", "content": "What is your project idea?"})
+    if not session["clarifications"]:
+        session["clarifications"] = "no specific constraints provided"
+
+    session["stage"] = "done"
+
+    try:
+        spec = generate_spec(session["project"], session["clarifications"])
+        return jsonify({
+            "role": "assistant",
+            "spec": spec,
+            "content": json.dumps(spec, indent=2)
+        })
+    except Exception as e:
+        return jsonify({
+            "role": "assistant",
+            "content": f"❌ Failed to generate spec: {e}"
+        })
