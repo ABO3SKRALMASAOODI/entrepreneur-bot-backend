@@ -217,7 +217,12 @@ def orchestrator():
         })
 
     if session["stage"] == "clarifications":
-        session["clarifications"] = clarifications if clarifications else "no specific constraints provided"
+        # Keep existing clarifications if user doesn't send new ones
+        if clarifications:
+            session["clarifications"] = clarifications
+        elif not session["clarifications"]:
+            session["clarifications"] = "no specific constraints provided"
+
         session["stage"] = "done"
         try:
             spec = generate_spec(session["project"], session["clarifications"])
