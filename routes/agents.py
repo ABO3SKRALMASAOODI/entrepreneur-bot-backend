@@ -159,98 +159,66 @@ description, domain_specific, agent_blueprint, api_contracts, db_schema, functio
 }}
 """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
-def estimate_complexity(spec: Dict[str, Any]) -> int:
-    """
-    Estimate project complexity score based on endpoints, DB tables, functions, and protocols.
-    This score will determine how many files are needed.
-    """
-    endpoints = len(spec.get("api_contracts", []))
-    db_tables = len(spec.get("db_schema", []))
-    functions = len(spec.get("function_contract_manifest", {}).get("functions", []))
-    protocols = len(spec.get("inter_agent_protocols", []))
-
-    # Weighted complexity calculation
-    score = (endpoints * 2) + (db_tables * 3) + (functions * 1.5) + (protocols * 2)
-
-    # Minimum complexity floor
-    return max(5, int(score))
-
-
-def split_large_modules(base_file: str, est_loc: int, max_loc: int = 650) -> list:
-    """
-    If estimated LOC exceeds max_loc, split into submodules.
-    """
-    if est_loc <= max_loc:
-        return [base_file]
-
-    num_parts = (est_loc // max_loc) + 1
-    return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
-
-
+# ===== Constraint Enforcer =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    # Inject constraints
+    # Inject constraints into domain_specific and description
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
         if clarifications not in spec.get("description", ""):
             spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Core required files
+    # Ensure critical stub files exist
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
         ("requirements.txt", "Pinned dependencies for consistent environment"),
-        ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
     for fname, desc in required_files:
-        if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
+        if not any(f.get('file') == fname for f in spec.get('interface_stub_files', [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
-    # Gather all referenced files
+    # ===== NEW: Create 1 agent per file =====
     all_files = set()
+
+    # From interface_stub_files
     for f in spec.get("interface_stub_files", []):
-        all_files.add(f["file"])
+        if "file" in f:
+            all_files.add(f["file"])
+
+    # From integration_tests
     for t in spec.get("integration_tests", []):
         if "path" in t:
             all_files.add(t["path"])
+
+    # From shared_schemas
     if "shared_schemas" in spec:
         all_files.add("core_shared_schemas.py")
+
+    # From db_schema
     if spec.get("db_schema"):
         all_files.add("db_schema.py")
+
+    # From dependency_graph
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             all_files.add(dep["file"])
         for d in dep.get("dependencies", []):
             all_files.add(d)
+
+    # From global_reference_index
     for ref in spec.get("global_reference_index", []):
         if "file" in ref:
             all_files.add(ref["file"])
+
+    # From function_contract_manifest
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             all_files.add(func["file"])
 
-    # Dynamic scaling — adjust based on complexity
-    complexity_score = estimate_complexity(spec)
-    expanded_files = set()
-
-    for file_name in all_files:
-        est_loc = 80  # Default LOC guess per small file
-        if "service" in file_name:
-            est_loc = 300
-        elif "test" in file_name:
-            est_loc = 100
-        elif "app" in file_name or "main" in file_name:
-            est_loc = 400
-
-        # Scale LOC estimate based on complexity
-        est_loc *= (complexity_score / 5)
-
-        # Split if needed
-        expanded_files.update(split_large_modules(file_name, int(est_loc)))
-
     # Build agent list
     spec["agent_blueprint"] = []
-    for file_name in sorted(expanded_files):
+    for file_name in sorted(all_files):
         base_name = file_name.rsplit(".", 1)[0]
         agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
         spec["agent_blueprint"].append({
@@ -305,6 +273,7 @@ def generate_spec(project: str, clarifications: str):
     return spec
 
 # ===== Orchestrator Route =====
+# ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
@@ -314,12 +283,14 @@ def orchestrator():
     user_id = body.get("user_id", "default")
     project = body.get("project", "").strip()
     clarifications = body.get("clarifications", "").strip()
+    run_agents = body.get("run_agents", False)  # NEW: flag to run agents immediately
 
     if user_id not in user_sessions:
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
 
     session = user_sessions[user_id]
 
+    # Step 1: Ask for project idea
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
@@ -327,6 +298,7 @@ def orchestrator():
         session["stage"] = "clarifications"
         return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
 
+    # Step 2: Ask for clarifications, then generate spec
     if session["stage"] == "clarifications":
         incoming_constraints = clarifications or project
         if incoming_constraints.strip():
@@ -334,12 +306,41 @@ def orchestrator():
         if not session["clarifications"]:
             session["clarifications"] = "no specific constraints provided"
         session["stage"] = "done"
+
         try:
             spec = generate_spec(session["project"], session["clarifications"])
-            return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
+
+            # NEW: Save latest spec for pipeline
+            project_state[session["project"]] = spec
+            save_state(project_state)
+
+            if run_agents:
+                try:
+                    from .agents_pipeline import run_all_agents_for_spec
+                    agent_outputs = run_all_agents_for_spec(spec)
+                    return jsonify({
+                        "role": "assistant",
+                        "orchestrator_output": json.dumps(spec, indent=2),
+                        "agents_output": agent_outputs
+                    })
+                except Exception as e:
+                    return jsonify({
+                        "role": "assistant",
+                        "content": f"✅ Spec generated, but failed to run agents: {e}",
+                        "orchestrator_output": json.dumps(spec, indent=2)
+                    })
+
+            # Default return if not running agents now
+            return jsonify({
+                "role": "assistant",
+                "spec": spec,
+                "content": json.dumps(spec, indent=2)
+            })
+
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
+    # Step 3: If session done, allow restart
     if session["stage"] == "done":
         if project:
             session.update({"stage": "clarifications", "project": project, "clarifications": ""})
@@ -348,8 +349,11 @@ def orchestrator():
             session["clarifications"] = clarifications
             try:
                 spec = generate_spec(session["project"], session["clarifications"])
+                project_state[session["project"]] = spec
+                save_state(project_state)
                 return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
             except Exception as e:
                 return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
         return jsonify({"role": "assistant", "content": "What is your project idea?"})
