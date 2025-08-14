@@ -106,69 +106,49 @@ SPEC_SYSTEM = (
 )
 
 # ===== Spec Template =====
-SPEC_TEMPLATE = """
-Project: {project}
-Preferences/Requirements: {clarifications}
-
-Produce STRICT JSON with every section fully populated, embedding all constraints into:
-description, domain_specific, agent_blueprint, api_contracts, db_schema, function_contract_manifest, inter_agent_protocols, dependency_graph, execution_plan, test_cases.
-
-{{
-  "version": "12.0",
-  "generated_at": "<ISO timestamp>",
-  "project": "<short name>",
-  "description": "<comprehensive summary including: {clarifications}>",
-  "project_type": "<auto-detected type>",
-  "target_users": ["<primary user groups>"],
-  "tech_stack": {{"language": "<main language>", "framework": "<main framework>", "database": "<db if any>"}},
-  "global_naming_contract": {{"agent_prefix": "<prefix>", "entity_suffix": "_entity", "service_suffix": "_service", "protocol_suffix": "_protocol", "test_suffix": "_test"}},
-  "data_dictionary": [{{"name": "<field>", "type": "<type>", "description": "<meaning>", "nullable": "<true/false>", "default": "<value or null>"}}],
-  "shared_schemas": {shared_schemas},
-  "protocol_schemas": "<Detailed schemas for all inter-agent messages with versioning and format>",
-  "errors_module": "<Custom exception classes + Error Decision Table mapping codes → conditions → HTTP status>",
-  "function_contract_manifest": {{"functions": [{{"file": "<filename>", "name": "<func_name>", "description": "<what it does>", "params": {{"param": "<type>"}}, "return_type": "<type>", "errors": ["<error_code>"]}}]}},
-  "interface_stub_files": [
-    {{"file": "config.py", "description": "Centralized configuration and constants"}},
-    {{"file": "api_endpoints.py", "description": "Centralized API endpoint paths"}},
-    {{"file": "requirements.txt", "description": "Pinned dependencies for consistent environment"}},
-    {{"file": "<filename>", "description": "<interface purpose>"}}
-  ],
-  "agent_blueprint": [{{"name": "<AgentName>", "description": "<Role in system implementing: {clarifications}">}}],
-  "api_contracts": [{{"endpoint": "<url>", "method": "<HTTP method>", "request_schema": "<schema>", "response_schema": "<schema>", "notes": "Implements: {clarifications}"}}],
-  "db_schema": [{{"table": "<table>", "columns": [{{"name": "<col>", "type": "<type>", "constraints": "<constraints>", "nullable": "<true/false>", "default": "<value or null>", "notes": "Derived from: {clarifications}"}}]}}],
-  "domain_specific": {{"user_constraints": "{clarifications}"}},
-  "inter_agent_protocols": [{{"protocol": "<name>", "description": "<flow including: {clarifications}">}}],
-  "dependency_graph": [{{"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"], "notes": "Supports: {clarifications}"}}]],
-  "execution_plan": [{{"step": 1, "description": "<step implementing: {clarifications}">}}],
-  "global_reference_index": [{{"file": "<file>", "functions": ["<func1>", "<func2>"], "classes": ["<class1>"], "agents": ["<agent1>"]}}],
-  "integration_tests": [
-    {{
-      "path": "test_schema_hash.py",
-      "code": "import hashlib; assert hashlib.sha256(open('core_shared_schemas.py').read().encode()).hexdigest() == '{core_hash}'"
-    }},
-    {{
-      "path": "test_manifest_compliance.py",
-      "code": "# Validates all implemented functions match the manifest exactly"
-    }},
-    {{
-      "path": "test_protocol_roundtrip.py",
-      "code": "# Verifies message formats can be serialized/deserialized without loss"
-    }}
-  ],
-  "test_cases": [{{"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}}]
-}}
-""".replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
+SPEC_TEMPLATE = """ Project: {project} Preferences/Requirements: {clarifications} Produce STRICT JSON with every section fully populated, embedding all constraints into: description, domain_specific, agent_blueprint, api_contracts, db_schema, function_contract_manifest, inter_agent_protocols, dependency_graph, execution_plan, test_cases. {{
+    "version": "12.0",
+    "generated_at": "<ISO timestamp>",
+    "project": "<short name>",
+    "description": "<comprehensive summary including: {clarifications}>",
+    "project_type": "<auto-detected type>",
+    "target_users": ["<primary user groups>"],
+    "tech_stack": {{"language": "<main language>", "framework": "<main framework>", "database": "<db if any>"}},
+    "global_naming_contract": {{"agent_prefix": "<prefix>", "entity_suffix": "_entity", "service_suffix": "_service", "protocol_suffix": "_protocol", "test_suffix": "_test"}},
+    "data_dictionary": [{{"name": "<field>", "type": "<type>", "description": "<meaning>", "nullable": "<true/false>", "default": "<value or null>"}}],
+    "shared_schemas": {shared_schemas},
+    "protocol_schemas": "<Detailed schemas for all inter-agent messages with versioning and format>",
+    "errors_module": "<Custom exception classes + Error Decision Table mapping codes → conditions → HTTP status>",
+    "function_contract_manifest": {{"functions": [{{"file": "<filename>", "name": "<func_name>", "description": "<what it does>", "params": {{"param": "<type>"}}, "return_type": "<type>", "errors": ["<error_code>"]}}]}},
+    "interface_stub_files": [
+        {{"file": "config.py", "description": "Centralized configuration and constants"}},
+        {{"file": "api_endpoints.py", "description": "Centralized API endpoint paths"}},
+        {{"file": "requirements.txt", "description": "Pinned dependencies for consistent environment"}},
+        {{"file": "<filename>", "description": "<interface purpose>"}}
+    ],
+    "agent_blueprint": [{{"name": "<AgentName>", "description": "<Role in system implementing: {clarifications}">}}],
+    "api_contracts": [{{"endpoint": "<url>", "method": "<HTTP method>", "request_schema": "<schema>", "response_schema": "<schema>", "notes": "Implements: {clarifications}"}}],
+    "db_schema": [{{"table": "<table>", "columns": [{{"name": "<col>", "type": "<type>", "constraints": "<constraints>", "nullable": "<true/false>", "default": "<value or null>", "notes": "Derived from: {clarifications}"}}]}}],
+    "domain_specific": {{"user_constraints": "{clarifications}"}},
+    "inter_agent_protocols": [{{"protocol": "<name>", "description": "<flow including: {clarifications}">}}],
+    "dependency_graph": [{{"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"], "notes": "Supports: {clarifications}"}}]],
+    "execution_plan": [{{"step": 1, "description": "<step implementing: {clarifications}">}}],
+    "global_reference_index": [{{"file": "<file>", "functions": ["<func1>", "<func2>"], "classes": ["<class1>"], "agents": ["<agent1>"]}}],
+    "integration_tests": [
+        {{ "path": "test_schema_hash.py", "code": "import hashlib; assert hashlib.sha256(open('core_shared_schemas.py').read().encode()).hexdigest() == '{core_hash}'" }},
+        {{ "path": "test_manifest_compliance.py", "code": "# Validates all implemented functions match the manifest exactly" }},
+        {{ "path": "test_protocol_roundtrip.py", "code": "# Verifies message formats can be serialized/deserialized without loss" }}
+    ],
+    "test_cases": [{{"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}}]
+}} """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
 # ===== Constraint Enforcer =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    # Inject constraints into domain_specific and description
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
         if clarifications not in spec.get("description", ""):
             spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
-
-    # Ensure critical stub files exist
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
@@ -177,46 +157,28 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
     for fname, desc in required_files:
         if not any(f.get('file') == fname for f in spec.get('interface_stub_files', [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
-
-    # ===== NEW: Create 1 agent per file =====
     all_files = set()
-
-    # From interface_stub_files
     for f in spec.get("interface_stub_files", []):
         if "file" in f:
             all_files.add(f["file"])
-
-    # From integration_tests
     for t in spec.get("integration_tests", []):
         if "path" in t:
             all_files.add(t["path"])
-
-    # From shared_schemas
     if "shared_schemas" in spec:
         all_files.add("core_shared_schemas.py")
-
-    # From db_schema
     if spec.get("db_schema"):
         all_files.add("db_schema.py")
-
-    # From dependency_graph
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             all_files.add(dep["file"])
         for d in dep.get("dependencies", []):
             all_files.add(d)
-
-    # From global_reference_index
     for ref in spec.get("global_reference_index", []):
         if "file" in ref:
             all_files.add(ref["file"])
-
-    # From function_contract_manifest
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             all_files.add(func["file"])
-
-    # Build agent list
     spec["agent_blueprint"] = []
     for file_name in sorted(all_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -225,7 +187,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
             "name": agent_name,
             "description": f"Responsible for implementing {file_name} exactly as specified in the spec."
         })
-
     return spec
 
 # ===== Spec Generator =====
@@ -236,7 +197,6 @@ def generate_spec(project: str, clarifications: str):
     filled = SPEC_TEMPLATE.replace("{project}", project_safe).replace("{clarifications}", clarifications_safe).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
-
     try:
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
@@ -248,10 +208,8 @@ def generate_spec(project: str, clarifications: str):
         )
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
-
     raw = resp.choices[0].message["content"]
     spec = _extract_json_strict(raw)
-
     if not spec:
         retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
         resp = openai.ChatCompletion.create(
@@ -264,9 +222,8 @@ def generate_spec(project: str, clarifications: str):
         )
         raw = resp.choices[0].message["content"]
         spec = _extract_json_strict(raw)
-        if not spec:
-            raise ValueError("❌ Failed to parse JSON spec after retry")
-
+    if not spec:
+        raise ValueError("❌ Failed to parse JSON spec after retry")
     spec = enforce_constraints(spec, clarifications_raw)
     project_state[project] = spec
     save_state(project_state)
@@ -277,54 +234,34 @@ def generate_spec(project: str, clarifications: str):
 def orchestrator():
     if request.method == "OPTIONS":
         return ("", 200)
-
     body = request.get_json(force=True) or {}
     user_id = body.get("user_id", "default")
-    project = (body.get("project") or "").strip()
-    clarifications = (body.get("clarifications") or "").strip()
-    run_agents = body.get("run_agents", False)  # Whether to run agents immediately after spec
+    project = body.get("project", "").strip()
+    clarifications = body.get("clarifications", "").strip()
+    run_agents = body.get("run_agents", False)
 
-    # Ensure session exists
     if user_id not in user_sessions:
-        user_sessions[user_id] = {
-            "stage": "project",
-            "project": "",
-            "clarifications": ""
-        }
+        user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     session = user_sessions[user_id]
 
-    # --- Stage 1: Ask for project idea ---
     if session["stage"] == "project":
         if not project:
-            return jsonify({
-                "role": "assistant",
-                "content": "What is your project idea?"
-            })
+            return jsonify({"role": "assistant", "content": "What is your project idea?"})
         session["project"] = project
         session["stage"] = "clarifications"
-        return jsonify({
-            "role": "assistant",
-            "content": "Do you have any preferences, requirements, or constraints? (Optional)"
-        })
+        return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
 
-    # --- Stage 2: Clarifications & Generate Spec ---
     if session["stage"] == "clarifications":
-        # Store clarifications or fallback to project if sent here
-        if clarifications:
-            session["clarifications"] = clarifications
-        elif not session["clarifications"]:
+        incoming_constraints = clarifications or project
+        if incoming_constraints.strip():
+            session["clarifications"] = incoming_constraints.strip()
+        if not session["clarifications"]:
             session["clarifications"] = "no specific constraints provided"
-
         session["stage"] = "done"
-
         try:
             spec = generate_spec(session["project"], session["clarifications"])
-
-            # Save latest spec
             project_state[session["project"]] = spec
             save_state(project_state)
-
-            # If agents should run immediately
             if run_agents:
                 try:
                     from .agents_pipeline import run_all_agents_for_spec
@@ -337,37 +274,21 @@ def orchestrator():
                 except Exception as e:
                     return jsonify({
                         "role": "assistant",
-                        "orchestrator_output": json.dumps(spec, indent=2),
                         "content": f"✅ Spec generated, but failed to run agents: {e}",
-                        "agents_output": []
+                        "orchestrator_output": json.dumps(spec, indent=2)
                     })
-
-            # Default: only return the spec
             return jsonify({
                 "role": "assistant",
                 "spec": spec,
-                "orchestrator_output": json.dumps(spec, indent=2),
-                "agents_output": []
+                "content": json.dumps(spec, indent=2)
             })
-
         except Exception as e:
-            return jsonify({
-                "role": "assistant",
-                "content": f"❌ Failed to generate spec: {e}"
-            })
+            return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    # --- Stage 3: Restart or update ---
     if session["stage"] == "done":
         if project:
-            session.update({
-                "stage": "clarifications",
-                "project": project,
-                "clarifications": ""
-            })
-            return jsonify({
-                "role": "assistant",
-                "content": "Do you have any preferences, requirements, or constraints? (Optional)"
-            })
+            session.update({"stage": "clarifications", "project": project, "clarifications": ""})
+            return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
         elif clarifications:
             session["clarifications"] = clarifications
             try:
@@ -377,22 +298,10 @@ def orchestrator():
                 return jsonify({
                     "role": "assistant",
                     "spec": spec,
-                    "orchestrator_output": json.dumps(spec, indent=2),
-                    "agents_output": []
+                    "content": json.dumps(spec, indent=2)
                 })
             except Exception as e:
-                return jsonify({
-                    "role": "assistant",
-                    "content": f"❌ Failed to generate spec: {e}"
-                })
+                return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-        # Full restart
-        user_sessions[user_id] = {
-            "stage": "project",
-            "project": "",
-            "clarifications": ""
-        }
-        return jsonify({
-            "role": "assistant",
-            "content": "What is your project idea?"
-        })
+    user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
+    return jsonify({"role": "assistant", "content": "What is your project idea?"})
