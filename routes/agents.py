@@ -159,66 +159,98 @@ description, domain_specific, agent_blueprint, api_contracts, db_schema, functio
 }}
 """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
-# ===== Constraint Enforcer =====
+def estimate_complexity(spec: Dict[str, Any]) -> int:
+    """
+    Estimate project complexity score based on endpoints, DB tables, functions, and protocols.
+    This score will determine how many files are needed.
+    """
+    endpoints = len(spec.get("api_contracts", []))
+    db_tables = len(spec.get("db_schema", []))
+    functions = len(spec.get("function_contract_manifest", {}).get("functions", []))
+    protocols = len(spec.get("inter_agent_protocols", []))
+
+    # Weighted complexity calculation
+    score = (endpoints * 2) + (db_tables * 3) + (functions * 1.5) + (protocols * 2)
+
+    # Minimum complexity floor
+    return max(5, int(score))
+
+
+def split_large_modules(base_file: str, est_loc: int, max_loc: int = 650) -> list:
+    """
+    If estimated LOC exceeds max_loc, split into submodules.
+    """
+    if est_loc <= max_loc:
+        return [base_file]
+
+    num_parts = (est_loc // max_loc) + 1
+    return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
+
+
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    # Inject constraints into domain_specific and description
+    # Inject constraints
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
         if clarifications not in spec.get("description", ""):
             spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Ensure critical stub files exist
+    # Core required files
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
         ("requirements.txt", "Pinned dependencies for consistent environment"),
+        ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
     for fname, desc in required_files:
-        if not any(f.get('file') == fname for f in spec.get('interface_stub_files', [])):
+        if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
-    # ===== NEW: Create 1 agent per file =====
+    # Gather all referenced files
     all_files = set()
-
-    # From interface_stub_files
     for f in spec.get("interface_stub_files", []):
-        if "file" in f:
-            all_files.add(f["file"])
-
-    # From integration_tests
+        all_files.add(f["file"])
     for t in spec.get("integration_tests", []):
         if "path" in t:
             all_files.add(t["path"])
-
-    # From shared_schemas
     if "shared_schemas" in spec:
         all_files.add("core_shared_schemas.py")
-
-    # From db_schema
     if spec.get("db_schema"):
         all_files.add("db_schema.py")
-
-    # From dependency_graph
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             all_files.add(dep["file"])
         for d in dep.get("dependencies", []):
             all_files.add(d)
-
-    # From global_reference_index
     for ref in spec.get("global_reference_index", []):
         if "file" in ref:
             all_files.add(ref["file"])
-
-    # From function_contract_manifest
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             all_files.add(func["file"])
 
+    # Dynamic scaling — adjust based on complexity
+    complexity_score = estimate_complexity(spec)
+    expanded_files = set()
+
+    for file_name in all_files:
+        est_loc = 80  # Default LOC guess per small file
+        if "service" in file_name:
+            est_loc = 300
+        elif "test" in file_name:
+            est_loc = 100
+        elif "app" in file_name or "main" in file_name:
+            est_loc = 400
+
+        # Scale LOC estimate based on complexity
+        est_loc *= (complexity_score / 5)
+
+        # Split if needed
+        expanded_files.update(split_large_modules(file_name, int(est_loc)))
+
     # Build agent list
     spec["agent_blueprint"] = []
-    for file_name in sorted(all_files):
+    for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
         agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
         spec["agent_blueprint"].append({
