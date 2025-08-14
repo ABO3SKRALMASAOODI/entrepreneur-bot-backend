@@ -273,7 +273,6 @@ def generate_spec(project: str, clarifications: str):
     return spec
 
 # ===== Orchestrator Route =====
-# ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
@@ -281,39 +280,51 @@ def orchestrator():
 
     body = request.get_json(force=True) or {}
     user_id = body.get("user_id", "default")
-    project = body.get("project", "").strip()
-    clarifications = body.get("clarifications", "").strip()
-    run_agents = body.get("run_agents", False)  # NEW: flag to run agents immediately
+    project = (body.get("project") or "").strip()
+    clarifications = (body.get("clarifications") or "").strip()
+    run_agents = body.get("run_agents", False)  # Whether to run agents immediately after spec
 
+    # Ensure session exists
     if user_id not in user_sessions:
-        user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
-
+        user_sessions[user_id] = {
+            "stage": "project",
+            "project": "",
+            "clarifications": ""
+        }
     session = user_sessions[user_id]
 
-    # Step 1: Ask for project idea
+    # --- Stage 1: Ask for project idea ---
     if session["stage"] == "project":
         if not project:
-            return jsonify({"role": "assistant", "content": "What is your project idea?"})
+            return jsonify({
+                "role": "assistant",
+                "content": "What is your project idea?"
+            })
         session["project"] = project
         session["stage"] = "clarifications"
-        return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
+        return jsonify({
+            "role": "assistant",
+            "content": "Do you have any preferences, requirements, or constraints? (Optional)"
+        })
 
-    # Step 2: Ask for clarifications, then generate spec
+    # --- Stage 2: Clarifications & Generate Spec ---
     if session["stage"] == "clarifications":
-        incoming_constraints = clarifications or project
-        if incoming_constraints.strip():
-            session["clarifications"] = incoming_constraints.strip()
-        if not session["clarifications"]:
+        # Store clarifications or fallback to project if sent here
+        if clarifications:
+            session["clarifications"] = clarifications
+        elif not session["clarifications"]:
             session["clarifications"] = "no specific constraints provided"
+
         session["stage"] = "done"
 
         try:
             spec = generate_spec(session["project"], session["clarifications"])
 
-            # NEW: Save latest spec for pipeline
+            # Save latest spec
             project_state[session["project"]] = spec
             save_state(project_state)
 
+            # If agents should run immediately
             if run_agents:
                 try:
                     from .agents_pipeline import run_all_agents_for_spec
@@ -326,34 +337,62 @@ def orchestrator():
                 except Exception as e:
                     return jsonify({
                         "role": "assistant",
+                        "orchestrator_output": json.dumps(spec, indent=2),
                         "content": f"✅ Spec generated, but failed to run agents: {e}",
-                        "orchestrator_output": json.dumps(spec, indent=2)
+                        "agents_output": []
                     })
 
-            # Default return if not running agents now
+            # Default: only return the spec
             return jsonify({
                 "role": "assistant",
                 "spec": spec,
-                "content": json.dumps(spec, indent=2)
+                "orchestrator_output": json.dumps(spec, indent=2),
+                "agents_output": []
             })
 
         except Exception as e:
-            return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+            return jsonify({
+                "role": "assistant",
+                "content": f"❌ Failed to generate spec: {e}"
+            })
 
-    # Step 3: If session done, allow restart
+    # --- Stage 3: Restart or update ---
     if session["stage"] == "done":
         if project:
-            session.update({"stage": "clarifications", "project": project, "clarifications": ""})
-            return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
+            session.update({
+                "stage": "clarifications",
+                "project": project,
+                "clarifications": ""
+            })
+            return jsonify({
+                "role": "assistant",
+                "content": "Do you have any preferences, requirements, or constraints? (Optional)"
+            })
         elif clarifications:
             session["clarifications"] = clarifications
             try:
                 spec = generate_spec(session["project"], session["clarifications"])
                 project_state[session["project"]] = spec
                 save_state(project_state)
-                return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
+                return jsonify({
+                    "role": "assistant",
+                    "spec": spec,
+                    "orchestrator_output": json.dumps(spec, indent=2),
+                    "agents_output": []
+                })
             except Exception as e:
-                return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+                return jsonify({
+                    "role": "assistant",
+                    "content": f"❌ Failed to generate spec: {e}"
+                })
 
-        user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
-        return jsonify({"role": "assistant", "content": "What is your project idea?"})
+        # Full restart
+        user_sessions[user_id] = {
+            "stage": "project",
+            "project": "",
+            "clarifications": ""
+        }
+        return jsonify({
+            "role": "assistant",
+            "content": "What is your project idea?"
+        })
