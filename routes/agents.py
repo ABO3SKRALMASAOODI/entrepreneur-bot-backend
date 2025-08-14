@@ -117,18 +117,38 @@ def estimate_complexity(spec: Dict[str, Any]) -> int:
     score = (endpoints * 2) + (db_tables * 3) + (functions * 1.5) + (protocols * 2)
     return max(5, int(score))
 
-def split_large_modules(base_file: str, est_loc: int, max_loc: int = 650) -> list:
+def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> list:
+    """
+    Decide whether to split a file based on estimated LOC.
+    - Increased max_loc so fewer files get split.
+    - Skip splitting for core/shared/config/test files unless extremely large.
+    """
+    # Never split these unless absurdly huge
+    skip_split_keywords = ["config", "constants", "shared", "schemas", "api_endpoints", "requirements", "test"]
+    if any(k in base_file.lower() for k in skip_split_keywords) and est_loc <= 2500:
+        return [base_file]
+
     if est_loc <= max_loc:
         return [base_file]
+
+    # Otherwise, split into parts
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
 
+
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
+    """
+    Apply additional constraints to the generated spec.
+    Ensures all required files exist and calculates agent blueprint
+    with more conservative file splitting logic.
+    """
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
     if clarifications not in spec.get("description", ""):
         spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
+
+    # Required stub files
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
@@ -138,6 +158,8 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
     for fname, desc in required_files:
         if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
+
+    # Collect all files mentioned anywhere in the spec
     all_files = set()
     for f in spec.get("interface_stub_files", []):
         all_files.add(f["file"])
@@ -159,18 +181,28 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             all_files.add(func["file"])
-    complexity_score = estimate_complexity(spec)
+
+    # Complexity score but capped to avoid over-splitting
+    complexity_score = min(estimate_complexity(spec), 12)
+
+    # Adjust base LOC estimates per file type
     expanded_files = set()
     for file_name in all_files:
-        est_loc = 80
         if "service" in file_name:
-            est_loc = 300
-        elif "test" in file_name:
-            est_loc = 100
-        elif "app" in file_name or "main" in file_name:
             est_loc = 400
-        est_loc *= (complexity_score / 5)
+        elif "test" in file_name:
+            est_loc = 150
+        elif "app" in file_name or "main" in file_name:
+            est_loc = 600
+        else:
+            est_loc = 120
+
+        # Scale with complexity but cap multiplier
+        est_loc *= min(complexity_score / 5, 2.0)
+
         expanded_files.update(split_large_modules(file_name, int(est_loc)))
+
+    # Create agent blueprint
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -179,7 +211,9 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
             "name": agent_name,
             "description": f"Responsible for implementing {file_name} exactly as specified in the spec."
         })
+
     return spec
+
 
 def generate_spec(project: str, clarifications: str):
     clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
