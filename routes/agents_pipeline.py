@@ -1,74 +1,104 @@
-# agents_pipeline.py
+# routes/agents_pipeline.py
+
+from flask import Blueprint, request, jsonify
 import os
 import json
 import openai
-from typing import List, Dict, Any
 
+agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def run_single_agent(agent: Dict[str, Any], assigned_file: str, spec: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Runs a single agent for its assigned file.
-    """
-    prompt = f"""
-You are an agent for a {spec.get("project_type", "software")} project.
-You are assigned to implement ONLY this file: {assigned_file}
+# ===== Extract Files from Orchestrator Spec =====
+def get_agent_files(spec):
+    files = set()
 
-STRICT RULES:
-1. Do NOT create or modify any other files.
-2. Follow orchestrator spec exactly.
-3. Output ONLY the code for your assigned file. No explanations, no markdown, no comments unless part of the actual code.
-4. You have the FULL project specification for context — but you must ONLY implement your assigned file.
+    # From interface stub files
+    for f in spec.get("interface_stub_files", []):
+        files.add(f["file"])
 
-FULL PROJECT SPEC:
-{json.dumps(spec, indent=2)}
-    """
+    # From agent blueprint descriptions (may have split files)
+    for agent in spec.get("agent_blueprint", []):
+        # Try to find explicit file name in description
+        desc = agent.get("description", "")
+        if "implementing" in desc:
+            # e.g. "Responsible for implementing blockchain_service_part1.py exactly..."
+            part = desc.split("implementing", 1)[1].strip().split(" ")[0]
+            if part.endswith(".py") or "." in part:
+                files.add(part)
 
-    try:
+    # From function contract manifest
+    for func in spec.get("function_contract_manifest", {}).get("functions", []):
+        if "file" in func:
+            files.add(func["file"])
+
+    # From dependency graph
+    for dep in spec.get("dependency_graph", []):
+        if "file" in dep:
+            files.add(dep["file"])
+        for d in dep.get("dependencies", []):
+            files.add(d)
+
+    # From global reference index
+    for ref in spec.get("global_reference_index", []):
+        if "file" in ref:
+            files.add(ref["file"])
+
+    return sorted(files)
+
+
+# ===== Spawn Agents for Each File =====
+def run_agents_for_spec(spec):
+    files = get_agent_files(spec)
+    outputs = []
+
+    for file_name in files:
+        agent_prompt = (
+            f"PART: {file_name}\n"
+            f"STRICT INSTRUCTIONS:\n"
+            f"1. Implement exactly what is required for {file_name}.\n"
+            f"2. Use only the details from the orchestrator spec.\n"
+            f"3. Do not modify other files or define things outside this file.\n"
+            f"4. Follow naming conventions and imports exactly.\n"
+            f"5. Only output valid code for this file, nothing else.\n\n"
+            f"FULL PROJECT SPEC:\n{json.dumps(spec, indent=2)}"
+        )
+
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             temperature=0,
             messages=[
-                {"role": "system", "content": "You are a senior coding agent."},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "You are a coding agent that outputs only the full code for your assigned file."},
+                {"role": "user", "content": agent_prompt}
             ]
         )
-        return {
-            "agent_name": agent["name"],
-            "file": assigned_file,
-            "output": resp.choices[0].message["content"]
-        }
-    except Exception as e:
-        return {
-            "agent_name": agent["name"],
-            "file": assigned_file,
-            "output": f"❌ Error: {e}"
-        }
 
-def run_all_agents_for_spec(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """
-    Runs all agents listed in the spec["agent_blueprint"].
-    Assigns one file per agent.
-    """
-    outputs = []
-
-    # Collect all files mentioned in agent_blueprint
-    for agent in spec.get("agent_blueprint", []):
-        # Extract file name from description if explicitly mentioned
-        assigned_file = None
-        desc = agent.get("description", "")
-        if "implementing " in desc.lower():
-            # Attempt to extract file name from description
-            try:
-                assigned_file = desc.split("implementing ")[-1].strip().split(" ")[0]
-            except Exception:
-                pass
-        
-        # Fallback: derive file from agent name
-        if not assigned_file:
-            base_name = agent["name"].replace("Agent", "").lower()
-            assigned_file = f"{base_name}.py"
-
-        outputs.append(run_single_agent(agent, assigned_file, spec))
+        outputs.append({
+            "file": file_name,
+            "code": resp.choices[0].message["content"]
+        })
 
     return outputs
+
+
+# ===== Flask Route to Run Agents =====
+@agents_pipeline_bp.route("/run_agents", methods=["POST"])
+def run_agents_endpoint():
+    """
+    Expects JSON:
+    {
+        "spec": { ... }  # full orchestrator output
+    }
+    """
+    body = request.get_json(force=True) or {}
+    spec = body.get("spec")
+    if not spec:
+        return jsonify({"error": "Missing spec"}), 400
+
+    try:
+        agent_outputs = run_agents_for_spec(spec)
+        return jsonify({
+            "role": "assistant",
+            "agents_output": agent_outputs
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

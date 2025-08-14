@@ -4,6 +4,7 @@ from datetime import datetime
 import openai
 from pathlib import Path
 from typing import Dict, Any
+from routes.agents_pipeline import run_agents_for_spec
 
 # ===== Flask Blueprint =====
 agents_bp = Blueprint("agents", __name__)
@@ -216,36 +217,55 @@ def generate_spec(project: str, clarifications: str):
     project_state[project] = spec
     save_state(project_state)
     return spec
-
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
         return ("", 200)
+
     body = request.get_json(force=True) or {}
     user_id = body.get("user_id", "default")
     project = body.get("project", "").strip()
     clarifications = body.get("clarifications", "").strip()
+
     if user_id not in user_sessions:
         user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
+
     session = user_sessions[user_id]
+
+    # Step 1 — Ask for project idea
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
         session["project"] = project
         session["stage"] = "clarifications"
         return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
+
+    # Step 2 — Ask for clarifications and generate orchestrator spec
     if session["stage"] == "clarifications":
         incoming_constraints = clarifications or project
         if incoming_constraints.strip():
             session["clarifications"] = incoming_constraints.strip()
         if not session["clarifications"]:
             session["clarifications"] = "no specific constraints provided"
+
         session["stage"] = "done"
         try:
+            # Generate orchestrator spec
             spec = generate_spec(session["project"], session["clarifications"])
-            return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
+
+            # NEW — Run agents immediately after generating spec
+            agent_outputs = run_agents_for_spec(spec)
+
+            return jsonify({
+                "role": "assistant",
+                "spec": spec,
+                "content": json.dumps(spec, indent=2),
+                "agents_output": agent_outputs
+            })
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+
+    # Step 3 — Allow restarting after "done"
     if session["stage"] == "done":
         if project:
             session.update({"stage": "clarifications", "project": project, "clarifications": ""})
@@ -254,8 +274,16 @@ def orchestrator():
             session["clarifications"] = clarifications
             try:
                 spec = generate_spec(session["project"], session["clarifications"])
-                return jsonify({"role": "assistant", "spec": spec, "content": json.dumps(spec, indent=2)})
+                agent_outputs = run_agents_for_spec(spec)
+                return jsonify({
+                    "role": "assistant",
+                    "spec": spec,
+                    "content": json.dumps(spec, indent=2),
+                    "agents_output": agent_outputs
+                })
             except Exception as e:
                 return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+
+    # Reset to first stage if unknown state
     user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
