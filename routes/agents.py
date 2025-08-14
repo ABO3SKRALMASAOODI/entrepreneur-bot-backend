@@ -176,6 +176,44 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
     for fname, desc in required_files:
         if not any(f['file'] == fname for f in spec.get('interface_stub_files', [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
+
+    # ===== NEW: Create 1 agent per file =====
+    # Gather all files from interface_stub_files + integration_tests + shared_schemas + db_schema (if applicable)
+    all_files = set()
+
+    # From interface_stub_files
+    for f in spec.get("interface_stub_files", []):
+        all_files.add(f["file"])
+
+    # From integration_tests
+    for t in spec.get("integration_tests", []):
+        if "path" in t:
+            all_files.add(t["path"])
+
+    # From shared_schemas (core_shared_schemas.py is implied)
+    if "shared_schemas" in spec:
+        all_files.add("core_shared_schemas.py")
+
+    # From db_schema (if not inline)
+    if spec.get("db_schema"):
+        all_files.add("db_schema.py")
+
+    # Ensure agent_blueprint exists
+    if "agent_blueprint" not in spec:
+        spec["agent_blueprint"] = []
+
+    # Clear any existing to avoid duplicates
+    spec["agent_blueprint"] = []
+
+    # Add an agent per file
+    for file_name in sorted(all_files):
+        base_name = file_name.replace(".py", "").replace(".txt", "").replace(".json", "")
+        agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
+        spec["agent_blueprint"].append({
+            "name": agent_name,
+            "description": f"Responsible for implementing {file_name} exactly as specified in the spec."
+        })
+
     return spec
 
 # ===== Spec Generator =====
