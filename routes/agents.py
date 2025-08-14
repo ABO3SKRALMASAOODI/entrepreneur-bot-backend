@@ -163,9 +163,10 @@ description, domain_specific, agent_blueprint, api_contracts, db_schema, functio
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
     # Inject constraints into domain_specific and description
     if clarifications.strip():
+        spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
         if clarifications not in spec.get("description", ""):
-            spec["description"] += f" | User constraints: {clarifications}"
+            spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
     # Ensure critical stub files exist
     required_files = [
@@ -174,40 +175,51 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         ("requirements.txt", "Pinned dependencies for consistent environment"),
     ]
     for fname, desc in required_files:
-        if not any(f['file'] == fname for f in spec.get('interface_stub_files', [])):
+        if not any(f.get('file') == fname for f in spec.get('interface_stub_files', [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
     # ===== NEW: Create 1 agent per file =====
-    # Gather all files from interface_stub_files + integration_tests + shared_schemas + db_schema (if applicable)
     all_files = set()
 
     # From interface_stub_files
     for f in spec.get("interface_stub_files", []):
-        all_files.add(f["file"])
+        if "file" in f:
+            all_files.add(f["file"])
 
     # From integration_tests
     for t in spec.get("integration_tests", []):
         if "path" in t:
             all_files.add(t["path"])
 
-    # From shared_schemas (core_shared_schemas.py is implied)
+    # From shared_schemas
     if "shared_schemas" in spec:
         all_files.add("core_shared_schemas.py")
 
-    # From db_schema (if not inline)
+    # From db_schema
     if spec.get("db_schema"):
         all_files.add("db_schema.py")
 
-    # Ensure agent_blueprint exists
-    if "agent_blueprint" not in spec:
-        spec["agent_blueprint"] = []
+    # From dependency_graph
+    for dep in spec.get("dependency_graph", []):
+        if "file" in dep:
+            all_files.add(dep["file"])
+        for d in dep.get("dependencies", []):
+            all_files.add(d)
 
-    # Clear any existing to avoid duplicates
+    # From global_reference_index
+    for ref in spec.get("global_reference_index", []):
+        if "file" in ref:
+            all_files.add(ref["file"])
+
+    # From function_contract_manifest
+    for func in spec.get("function_contract_manifest", {}).get("functions", []):
+        if "file" in func:
+            all_files.add(func["file"])
+
+    # Build agent list
     spec["agent_blueprint"] = []
-
-    # Add an agent per file
     for file_name in sorted(all_files):
-        base_name = file_name.replace(".py", "").replace(".txt", "").replace(".json", "")
+        base_name = file_name.rsplit(".", 1)[0]
         agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
         spec["agent_blueprint"].append({
             "name": agent_name,
