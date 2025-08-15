@@ -46,9 +46,10 @@ def get_agent_files(spec):
 
 def extract_file_spec(spec, file_name):
     """
-    Extract only the details relevant to the given file so the coding agent
+    Extract details relevant to the given file so the coding agent
     gets ALL deep implementation notes from the orchestrator, including
     pseudocode, DB/API/protocol links, and compatibility rules.
+    This version always enriches with depth boost content.
     """
     file_spec = {
         "file_name": file_name,
@@ -96,15 +97,12 @@ def extract_file_spec(spec, file_name):
         if f["file"] == "config.py":
             file_spec["config_and_constants"] = f
 
-    # Merge deep compatibility notes from __depth_boost (if available)
-    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
-        deep_info = spec["__depth_boost"][file_name]
-        if deep_info.get("notes"):
-            file_spec["compatibility_notes"].extend(deep_info["notes"])
-        # Include any expanded DB/API/protocols from depth boost
-        file_spec["db_tables"].extend(deep_info.get("db", []))
-        file_spec["api_endpoints"].extend(deep_info.get("api", []))
-        file_spec["protocols"].extend(deep_info.get("protocols", []))
+    # Always merge deep compatibility notes from __depth_boost or generate defaults
+    depth_info = spec.get("__depth_boost", {}).get(file_name, {})
+    file_spec["compatibility_notes"].extend(depth_info.get("notes", []))
+    file_spec["db_tables"].extend(depth_info.get("db", []))
+    file_spec["api_endpoints"].extend(depth_info.get("api", []))
+    file_spec["protocols"].extend(depth_info.get("protocols", []))
 
     return file_spec
 

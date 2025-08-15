@@ -280,61 +280,54 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 
     return spec
 
-def boost_spec_depth(spec: Dict[str, Any]) -> Dict[str, Any]:
+def boost_spec_depth(spec: dict) -> dict:
     """
-    Deepen every file and function in the spec with full pseudocode,
-    inter-file interaction rules, and edge cases so agents generate long,
-    complex, and fully compatible code.
+    Expands the orchestrator spec with deep, rich, and highly detailed implementation
+    instructions for every file in the project. This guarantees agents receive
+    enough content to generate world-class, long, and compatible code.
     """
-    file_map = {}
-    for f in spec.get("interface_stub_files", []):
-        file_map[f["file"]] = {"functions": [], "db": [], "api": [], "protocols": [], "notes": []}
+    if "__depth_boost" not in spec:
+        spec["__depth_boost"] = {}
 
-    # Expand pseudocode and link dependencies
-    for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        fname = func.get("file")
-        if fname and fname in file_map:
-            if not func.get("steps") or len(func["steps"]) < 5:
-                func["steps"] = [
-                    "Step 1: Strictly validate inputs with detailed type checks and domain rules.",
-                    "Step 2: Retrieve or initialize required entities from the database.",
-                    "Step 3: Apply complete business logic, including all edge cases.",
-                    "Step 4: Coordinate with dependent modules or services per the dependency graph.",
-                    "Step 5: Persist changes with transaction safety and rollback on error.",
-                    "Step 6: Return a well-structured, validated response object."
-                ]
-            file_map[fname]["functions"].append(func)
+    all_files = set()
 
-    # DB schema links
-    for table in spec.get("db_schema", []):
-        for fname in file_map.keys():
-            if any(col["name"] in json.dumps(file_map[fname]["functions"]) for col in table["columns"]):
-                file_map[fname]["db"].append(table)
+    # Gather all file names from various spec sections
+    for section in ["interface_stub_files", "agent_blueprint", "function_contract_manifest",
+                    "dependency_graph", "global_reference_index"]:
+        entries = spec.get(section, [])
+        if isinstance(entries, dict):
+            entries = entries.get("functions", []) if section == "function_contract_manifest" else []
+        for item in entries:
+            if isinstance(item, dict) and "file" in item:
+                all_files.add(item["file"])
+            elif isinstance(item, str):
+                all_files.add(item)
 
-    # API contract links
-    for api in spec.get("api_contracts", []):
-        for fname in file_map.keys():
-            if any(func["name"] in json.dumps(api) for func in file_map[fname]["functions"]):
-                file_map[fname]["api"].append(api)
+    # Populate detailed depth boost for each file
+    for file_name in all_files:
+        spec["__depth_boost"].setdefault(file_name, {})
 
-    # Protocol links
-    for proto in spec.get("inter_agent_protocols", []):
-        for fname in file_map.keys():
-            if fname in json.dumps(proto):
-                file_map[fname]["protocols"].append(proto)
+        # Example deep pseudocode and considerations
+        spec["__depth_boost"][file_name]["notes"] = [
+            f"Implement {file_name} with production-grade standards.",
+            "Follow SOLID principles, modular structure, and type hints everywhere.",
+            "Include full error handling, retries, and failover logic where applicable.",
+            "Add comprehensive logging at INFO and ERROR levels.",
+            "Ensure security best practices: sanitize inputs, prevent injection attacks, handle secrets properly.",
+            "Design for high performance: avoid unnecessary loops, use efficient algorithms and data structures.",
+            "Write functions to be unit-testable and deterministic.",
+            "Include integration points for APIs, DB, and inter-agent protocols exactly as per spec.",
+            "Document every public method and class with docstrings explaining usage and edge cases.",
+            "Follow consistent naming and structure to guarantee compatibility with other generated files."
+        ]
 
-    # Add complexity and compatibility notes
-    for fname, details in file_map.items():
-        if details["functions"] or details["db"] or details["api"] or details["protocols"]:
-            details["notes"].extend([
-                "Ensure strict compatibility with all dependent files as defined in dependency_graph.",
-                "Implement exhaustive error handling and map all errors to error codes.",
-                "Add logging for debug, info, and error levels for observability.",
-                "Code must be fully unit-testable without reliance on global state."
-            ])
+        # Optional expanded DB/API/protocols (could pull from spec if relevant)
+        spec["__depth_boost"][file_name]["db"] = spec.get("db_schema", [])
+        spec["__depth_boost"][file_name]["api"] = spec.get("api_contracts", [])
+        spec["__depth_boost"][file_name]["protocols"] = spec.get("inter_agent_protocols", [])
 
-    spec["__depth_boost"] = file_map
     return spec
+
 
 
 def generate_spec(project: str, clarifications: str):
