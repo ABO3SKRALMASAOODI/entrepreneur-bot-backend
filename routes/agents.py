@@ -7,6 +7,7 @@ import openai
 from pathlib import Path
 from typing import Dict, Any
 from routes.agents_pipeline import run_agents_for_spec
+from flask_cors import cross_origin
 
 # ===== Flask Blueprint =====
 agents_bp = Blueprint("agents", __name__)
