@@ -8,8 +8,6 @@ import openai
 
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
-
-
 def get_agent_files(spec):
     files = set()
 
@@ -37,9 +35,11 @@ def get_agent_files(spec):
         if isinstance(dep, dict):
             if isinstance(dep.get("file"), str) and dep["file"].strip():
                 files.add(dep["file"].strip())
-            for dependency in dep.get("dependencies", []):
-                if isinstance(dependency, str) and dependency.strip():
-                    files.add(dependency.strip())
+            dependencies = dep.get("dependencies", [])
+            if isinstance(dependencies, list):
+                for dependency in dependencies:
+                    if isinstance(dependency, str) and dependency.strip():
+                        files.add(dependency.strip())
 
     # Global reference index
     for ref in spec.get("global_reference_index", []):

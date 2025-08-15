@@ -228,14 +228,15 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
         return [base_file]
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
-
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
+    # Attach constraints
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
     if clarifications not in spec.get("description", ""):
         spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
+    # Ensure required files exist
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
@@ -243,35 +244,39 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
     for fname, desc in required_files:
-        if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
+        if not any(isinstance(f, dict) and f.get("file") == fname for f in spec.get("interface_stub_files", [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
+    # Collect all files
     all_files = set()
 
     # From interface stub files
     for f in spec.get("interface_stub_files", []):
-        if isinstance(f, dict) and "file" in f and f["file"]:
-            all_files.add(f["file"])
+        if isinstance(f, dict) and isinstance(f.get("file"), str) and f["file"].strip():
+            all_files.add(f["file"].strip())
 
     # From dependency graph
     for dep in spec.get("dependency_graph", []):
         if isinstance(dep, dict):
-            if "file" in dep and dep["file"]:
-                all_files.add(dep["file"])
-            for d in dep.get("dependencies", []):
-                if isinstance(d, str) and d.strip():
-                    all_files.add(d.strip())
+            if isinstance(dep.get("file"), str) and dep["file"].strip():
+                all_files.add(dep["file"].strip())
+            dependencies = dep.get("dependencies", [])
+            if isinstance(dependencies, list):
+                for dependency in dependencies:
+                    if isinstance(dependency, str) and dependency.strip():
+                        all_files.add(dependency.strip())
 
     # From global reference index
     for ref in spec.get("global_reference_index", []):
-        if isinstance(ref, dict) and "file" in ref and ref["file"]:
-            all_files.add(ref["file"])
+        if isinstance(ref, dict) and isinstance(ref.get("file"), str) and ref["file"].strip():
+            all_files.add(ref["file"].strip())
 
     # From function contract manifest
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if isinstance(func, dict) and "file" in func and func["file"]:
-            all_files.add(func["file"])
+        if isinstance(func, dict) and isinstance(func.get("file"), str) and func["file"].strip():
+            all_files.add(func["file"].strip())
 
+    # Expand large modules
     complexity_score = min(estimate_complexity(spec), 12)
     expanded_files = set()
     for file_name in all_files:
@@ -286,6 +291,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         est_loc *= min(complexity_score / 5, 2.0)
         expanded_files.update(split_large_modules(file_name, int(est_loc)))
 
+    # Generate agent blueprint
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -296,6 +302,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         })
 
     return spec
+
 
 
 # ===== Spec Generator =====
