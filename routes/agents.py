@@ -159,8 +159,7 @@ Produce STRICT JSON with every section fully populated.
             "example_output": { "example_field": "value" }
         }
     ]
-}
-,
+},
   "interface_stub_files": [
     {"file": "config.py", "description": "Centralized configuration and constants"},
     {"file": "api_endpoints.py", "description": "Centralized API endpoint paths"},
@@ -249,18 +248,29 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
     all_files = set()
+
+    # Add from interface stub files
     for f in spec.get("interface_stub_files", []):
-        all_files.add(f["file"])
+        if isinstance(f, dict) and "file" in f and f["file"]:
+            all_files.add(f["file"])
+
+    # Add from dependency graph (safe handling)
     for dep in spec.get("dependency_graph", []):
-        if "file" in dep:
-            all_files.add(dep["file"])
-        for d in dep.get("dependencies", []):
-            all_files.add(d)
+        if isinstance(dep, dict):
+            if "file" in dep and dep["file"]:
+                all_files.add(dep["file"])
+            for d in dep.get("dependencies", []):
+                if isinstance(d, str) and d.strip():
+                    all_files.add(d.strip())
+
+    # Add from global reference index
     for ref in spec.get("global_reference_index", []):
-        if "file" in ref:
+        if isinstance(ref, dict) and "file" in ref and ref["file"]:
             all_files.add(ref["file"])
+
+    # Add from function contract manifest
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if "file" in func:
+        if isinstance(func, dict) and "file" in func and func["file"]:
             all_files.add(func["file"])
 
     complexity_score = min(estimate_complexity(spec), 12)
