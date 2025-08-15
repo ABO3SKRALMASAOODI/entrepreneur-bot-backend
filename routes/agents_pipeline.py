@@ -151,15 +151,25 @@ def verify_tests(outputs, spec):
 # 2. Generator & Tester Agents
 # =====================================================
 
+# =====================================================
+# 2. Generator & Tester Agents (Upgraded with caching + self-checks)
+# =====================================================
+
+# Cache to store the first review per file (so no moving-target feedback)
+_first_review_cache = {}
+
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
-    """Generator Agent: produces final, production-ready code in one pass."""
+    """Generator Agent: produces final, production-ready code in one pass with self-checks."""
     feedback_note = ""
     if review_feedback:
         feedback_note = (
-            "\n\nIMPORTANT: You MUST address EVERY SINGLE ITEM from the feedback list below "
-            "in this revision. Do not leave any point unresolved. "
-            "Do not introduce new violations. "
-            "After implementing, mentally verify each feedback point is resolved.\n\n"
+            "\n\nIMPORTANT SELF-CHECK WORKFLOW:\n"
+            "1. Extract EVERY SINGLE feedback point into a numbered checklist.\n"
+            "2. For each item, plan the exact change required.\n"
+            "3. After planning all fixes, generate the complete code.\n"
+            "4. After writing the code, mentally re-check that EVERY checklist item is fixed.\n"
+            "5. Do not skip or partially fix any point.\n"
+            "6. Do not introduce new violations.\n\n"
             f"FEEDBACK TO FIX:\n{review_feedback}"
         )
 
@@ -170,13 +180,13 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
 You are the **world’s most elite coding agent** for file: **{file_name}**.
 
 STRICT NON-NEGOTIABLE RULES:
-1. Implement exactly as per the orchestrator spec — no deviations, no omissions.
-2. Address **all** tester feedback points in this single revision — 100% coverage.
-3. Maintain full compatibility with all other files in the project.
-4. No placeholders, TODOs, or partial logic — complete, production-ready code only.
-5. Preserve performance, maintainability, and security best practices.
-6. Follow naming conventions, type hints, docstrings, error handling, and logging policies as in the spec.
-7. Output ONLY the full final code for {file_name} — nothing else.
+1. Follow the orchestrator spec exactly — no deviations or omissions.
+2. Fully implement all details with production-grade quality.
+3. Maintain full compatibility with all other files.
+4. No placeholders, TODOs, or partial logic — the code must be complete and functional.
+5. Follow naming conventions, type hints, docstrings, error handling, and logging policies as in the spec.
+6. Optimize for clarity, maintainability, performance, and security best practices.
+7. Output ONLY the final code for {file_name} — nothing else.
 
 FULL PROJECT CONTEXT:
 {json.dumps(full_spec, indent=2)}
@@ -190,7 +200,14 @@ FILE-SPECIFIC IMPLEMENTATION DETAILS:
         model="gpt-4o-mini",
         temperature=0,
         messages=[
-            {"role": "system", "content": "You are a perfectionist coding agent producing flawless, final code. You must fix all feedback points in one go."},
+            {
+                "role": "system",
+                "content": (
+                    "You are a perfectionist coding agent. "
+                    "You must first plan fixes for every feedback item, "
+                    "then mentally verify each one is implemented before outputting the code."
+                )
+            },
             {"role": "user", "content": agent_prompt}
         ]
     )
@@ -198,19 +215,25 @@ FILE-SPECIFIC IMPLEMENTATION DETAILS:
 
 
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
-    """Tester Agent: exhaustive review in one pass — no new issues later."""
+    """Tester Agent: exhaustive review in one pass, with caching to avoid new-issue loops."""
     role_prefix = full_spec.get("_agent_role_prefix", {}).get("tester", "")
+
+    # If we already have a cached review for this file (and it's not approved), reuse it
+    if file_name in _first_review_cache and "✅ APPROVED" not in _first_review_cache[file_name]:
+        return _first_review_cache[file_name]
 
     tester_prompt = f"""{role_prefix}
 
 You are the **strictest software reviewer alive**.
 
 REVIEW RULES:
-- Perform a **full exhaustive review** of {file_name}.
-- List **ALL** violations, style issues, missing features, security concerns, or incompatibilities — in this **single review**.
-- DO NOT leave issues for later reviews — once approved, you cannot reject in the future.
-- If there are violations, output them all at once, clearly numbered, with exact fixes.
+- Perform a **FULL exhaustive review** of {file_name}.
+- List **EVERY** possible violation, improvement, or deviation from the spec in this ONE review.
+- DO NOT hold anything back for later. If you miss it now, you can never ask for it again.
+- Include line numbers or exact code snippets when pointing out issues.
+- If there are issues, list them in a numbered format with clear, actionable fixes.
 - If perfect, output ONLY: ✅ APPROVED
+- Once you output ✅ APPROVED, you can never reject in the future.
 
 FULL PROJECT CONTEXT:
 {json.dumps(full_spec, indent=2)}
@@ -226,12 +249,24 @@ GENERATED CODE TO REVIEW:
         model="gpt-4o-mini",
         temperature=0,
         messages=[
-            {"role": "system", "content": "You are a perfectionist code reviewer. You must list ALL violations in one pass. Once you approve, you can never reject again."},
+            {
+                "role": "system",
+                "content": (
+                    "You are a perfectionist code reviewer. "
+                    "You MUST output all violations in the first review. "
+                    "Once approved, you can never reject again."
+                )
+            },
             {"role": "user", "content": tester_prompt}
         ]
     )
-    return resp.choices[0].message["content"]
 
+    review_text = resp.choices[0].message["content"]
+
+    # Cache the very first review text for this file (even if it's approval)
+    _first_review_cache[file_name] = review_text
+
+    return review_text
 
 # =====================================================
 # 3. Main Runner Loop
