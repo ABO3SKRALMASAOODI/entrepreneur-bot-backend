@@ -44,12 +44,11 @@ def get_agent_files(spec):
 
     return sorted(files)
 
-
-# ===== Extract Relevant Details for a Single File =====
 def extract_file_spec(spec, file_name):
     """
     Extract only the details relevant to the given file so the coding agent
-    is not overwhelmed with irrelevant information.
+    gets ALL deep implementation notes from the orchestrator, including
+    pseudocode, DB/API/protocol links, and compatibility rules.
     """
     file_spec = {
         "file_name": file_name,
@@ -58,7 +57,8 @@ def extract_file_spec(spec, file_name):
         "api_endpoints": [],
         "protocols": [],
         "shared_schemas": spec.get("shared_schemas"),
-        "config_and_constants": None
+        "config_and_constants": None,
+        "compatibility_notes": []
     }
 
     # Functions for this file
@@ -66,42 +66,49 @@ def extract_file_spec(spec, file_name):
         if func.get("file") == file_name:
             file_spec["functions"].append(func)
 
-    # DB tables if this file likely touches persistence
+    # DB tables
     for table in spec.get("db_schema", []):
         for col in table.get("columns", []):
-            # crude match: if file name suggests DB logic OR function uses table name
             if "db" in file_name.lower() or any(
                 table["table"] in json.dumps(func) for func in file_spec["functions"]
             ):
                 if table not in file_spec["db_tables"]:
                     file_spec["db_tables"].append(table)
 
-    # API endpoints relevant to this file
+    # API endpoints
     for api in spec.get("api_contracts", []):
         for func in file_spec["functions"]:
             if func.get("name") in json.dumps(api):
                 file_spec["api_endpoints"].append(api)
 
-    # Inter-agent protocols relevant to this file
+    # Protocols
     for proto in spec.get("inter_agent_protocols", []):
         if file_name in json.dumps(proto):
             file_spec["protocols"].append(proto)
         else:
-            # Also match by function names used in protocols
             for func in file_spec["functions"]:
                 if func.get("name") in json.dumps(proto):
                     file_spec["protocols"].append(proto)
                     break
 
-    # Config & constants file reference
+    # Config reference
     for f in spec.get("interface_stub_files", []):
         if f["file"] == "config.py":
             file_spec["config_and_constants"] = f
 
+    # Merge deep compatibility notes from __depth_boost (if available)
+    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
+        deep_info = spec["__depth_boost"][file_name]
+        if deep_info.get("notes"):
+            file_spec["compatibility_notes"].extend(deep_info["notes"])
+        # Include any expanded DB/API/protocols from depth boost
+        file_spec["db_tables"].extend(deep_info.get("db", []))
+        file_spec["api_endpoints"].extend(deep_info.get("api", []))
+        file_spec["protocols"].extend(deep_info.get("protocols", []))
+
     return file_spec
 
 
-# ===== Spawn Agents for Each File =====
 def run_agents_for_spec(spec):
     files = get_agent_files(spec)
     outputs = []
@@ -110,15 +117,17 @@ def run_agents_for_spec(spec):
         file_spec = extract_file_spec(spec, file_name)
 
         agent_prompt = (
-            f"You are a coding agent assigned to implement ONLY the file: {file_name}\n\n"
-            f"Follow these STRICT rules:\n"
-            f"1. Implement EXACTLY what is described for this file — no extra features.\n"
-            f"2. Follow the function signatures, parameters, return types, and pseudocode steps EXACTLY.\n"
-            f"3. Use only constants/configs from config.py; never hardcode values.\n"
-            f"4. Use imports exactly as described; import shared classes/functions from core_shared_schemas.py.\n"
-            f"5. Produce fully working code — no placeholders, no TODOs.\n"
-            f"6. Output ONLY valid Python code for this file, nothing else.\n\n"
-            f"FILE-SPECIFIC IMPLEMENTATION DETAILS:\n"
+            f"You are a world-class coding agent assigned to implement ONLY the file: {file_name}\n\n"
+            f"Follow these ABSOLUTE RULES:\n"
+            f"1. Implement EXACTLY what is described — no features beyond spec.\n"
+            f"2. Follow ALL pseudocode steps and edge cases provided.\n"
+            f"3. Maintain strict compatibility with dependent files as per dependency_graph.\n"
+            f"4. Use only constants/configs from config.py; never hardcode values.\n"
+            f"5. Use imports exactly as described; import shared items from core_shared_schemas.py.\n"
+            f"6. Produce fully working, production-ready code — no placeholders, no TODOs.\n"
+            f"7. Output ONLY valid Python code for this file, nothing else.\n"
+            f"8. Implement comprehensive error handling, logging, and unit-testable design.\n\n"
+            f"FILE-SPECIFIC IMPLEMENTATION DETAILS (full depth from orchestrator):\n"
             f"{json.dumps(file_spec, indent=2)}"
         )
 
@@ -126,7 +135,7 @@ def run_agents_for_spec(spec):
             model="gpt-4o-mini",
             temperature=0,
             messages=[
-                {"role": "system", "content": "You are a coding agent that outputs only the complete code for your assigned file."},
+                {"role": "system", "content": "You are a coding agent that outputs only complete, fully compatible code for your assigned file."},
                 {"role": "user", "content": agent_prompt}
             ]
         )
@@ -137,6 +146,7 @@ def run_agents_for_spec(spec):
         })
 
     return outputs
+
 
 
 # ===== Flask Route to Run Agents =====

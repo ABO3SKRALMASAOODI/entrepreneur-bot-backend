@@ -280,7 +280,63 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 
     return spec
 
-# ===== Spec Generator =====
+def boost_spec_depth(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Deepen every file and function in the spec with full pseudocode,
+    inter-file interaction rules, and edge cases so agents generate long,
+    complex, and fully compatible code.
+    """
+    file_map = {}
+    for f in spec.get("interface_stub_files", []):
+        file_map[f["file"]] = {"functions": [], "db": [], "api": [], "protocols": [], "notes": []}
+
+    # Expand pseudocode and link dependencies
+    for func in spec.get("function_contract_manifest", {}).get("functions", []):
+        fname = func.get("file")
+        if fname and fname in file_map:
+            if not func.get("steps") or len(func["steps"]) < 5:
+                func["steps"] = [
+                    "Step 1: Strictly validate inputs with detailed type checks and domain rules.",
+                    "Step 2: Retrieve or initialize required entities from the database.",
+                    "Step 3: Apply complete business logic, including all edge cases.",
+                    "Step 4: Coordinate with dependent modules or services per the dependency graph.",
+                    "Step 5: Persist changes with transaction safety and rollback on error.",
+                    "Step 6: Return a well-structured, validated response object."
+                ]
+            file_map[fname]["functions"].append(func)
+
+    # DB schema links
+    for table in spec.get("db_schema", []):
+        for fname in file_map.keys():
+            if any(col["name"] in json.dumps(file_map[fname]["functions"]) for col in table["columns"]):
+                file_map[fname]["db"].append(table)
+
+    # API contract links
+    for api in spec.get("api_contracts", []):
+        for fname in file_map.keys():
+            if any(func["name"] in json.dumps(api) for func in file_map[fname]["functions"]):
+                file_map[fname]["api"].append(api)
+
+    # Protocol links
+    for proto in spec.get("inter_agent_protocols", []):
+        for fname in file_map.keys():
+            if fname in json.dumps(proto):
+                file_map[fname]["protocols"].append(proto)
+
+    # Add complexity and compatibility notes
+    for fname, details in file_map.items():
+        if details["functions"] or details["db"] or details["api"] or details["protocols"]:
+            details["notes"].extend([
+                "Ensure strict compatibility with all dependent files as defined in dependency_graph.",
+                "Implement exhaustive error handling and map all errors to error codes.",
+                "Add logging for debug, info, and error levels for observability.",
+                "Code must be fully unit-testable without reliance on global state."
+            ])
+
+    spec["__depth_boost"] = file_map
+    return spec
+
+
 def generate_spec(project: str, clarifications: str):
     clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
     clarifications_safe = json.dumps(clarifications_raw)[1:-1]
@@ -313,7 +369,11 @@ def generate_spec(project: str, clarifications: str):
         spec = _extract_json_strict(raw)
     if not spec:
         raise ValueError("❌ Failed to parse JSON spec after retry")
+
+    # Inject world-class depth before constraint enforcement
+    spec = boost_spec_depth(spec)
     spec = enforce_constraints(spec, clarifications_raw)
+
     project_state[project] = spec
     save_state(project_state)
     return spec
