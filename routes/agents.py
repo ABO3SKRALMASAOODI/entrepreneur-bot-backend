@@ -212,7 +212,6 @@ def estimate_complexity(spec: Dict[str, Any]) -> int:
     protocols = len(spec.get("inter_agent_protocols", []))
     score = (endpoints * 2) + (db_tables * 3) + (functions * 1.5) + (protocols * 2)
     return max(5, int(score))
-
 # ===== File Splitting =====
 def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> list:
     skip_split_keywords = ["config", "constants", "shared", "schemas", "api_endpoints", "requirements", "test"]
@@ -331,6 +330,7 @@ def boost_spec_depth(spec: dict) -> dict:
 
 
 
+# ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
     clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
     clarifications_safe = json.dumps(clarifications_raw)[1:-1]
@@ -364,13 +364,27 @@ def generate_spec(project: str, clarifications: str):
     if not spec:
         raise ValueError("❌ Failed to parse JSON spec after retry")
 
-    # Inject world-class depth before constraint enforcement
     spec = boost_spec_depth(spec)
     spec = enforce_constraints(spec, clarifications_raw)
+
+    # 🚀 Enhanced role prefixes
+    spec["_agent_role_prefix"] = {
+        "generator": (
+            "You are the **world’s most elite coding agent**. "
+            "Your mission: deliver FINAL, PRODUCTION-READY code in one pass, "
+            "addressing every requirement from the spec and every tester feedback point in one go."
+        ),
+        "tester": (
+            "You are the **strictest software reviewer alive**. "
+            "Your mission: review code and list ALL violations in one single review. "
+            "Approve only if flawless — output ONLY '✅ APPROVED' if perfect."
+        )
+    }
 
     project_state[project] = spec
     save_state(project_state)
     return spec
+
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 @cross_origin(origins=["https://thehustlerbot.com"])
@@ -403,15 +417,7 @@ def orchestrator():
         session["stage"] = "done"
         try:
             spec = generate_spec(session["project"], session["clarifications"])
-
-            # Add explicit role instruction into spec for both generator & tester
-            spec["_agent_role_prefix"] = {
-                "generator": "You are the world’s best coding agent. Produce only final, production-ready code.",
-                "tester": "You are the world’s strictest code reviewer. Approve only if it’s flawless."
-            }
-
             agent_outputs = run_agents_for_spec(spec)
-
             return jsonify({
                 "role": "assistant",
                 "status": "FULLY VERIFIED",
@@ -421,6 +427,5 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
-    # Reset if stage is done but no project given
     user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
