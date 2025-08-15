@@ -1,3 +1,5 @@
+# routes/orchestrator.py
+
 from flask import Blueprint, request, jsonify
 import os, json, re, hashlib
 from datetime import datetime
@@ -80,35 +82,128 @@ CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 # ===== Universal Orchestrator Instructions =====
 SPEC_SYSTEM = (
     "You are the most advanced universal multi-agent project orchestrator in existence. "
-    "Your output must be a FINAL, COMPLETE, ZERO-AMBIGUITY multi-file specification such that "
-    "100+ independent coding agents can implement their parts in isolation, and when combined, "
-    "the system will run flawlessly with zero manual fixes — regardless of project size or type.\n"
+    "Your output must be FINAL, COMPLETE, and ZERO-AMBIGUITY so that 100+ independent coding agents "
+    "can implement their files in isolation and when combined, the system runs flawlessly without manual fixes.\n"
     "--- UNIVERSAL COMPATIBILITY RULES ---\n"
-    "1. Fully incorporate ALL user-provided preferences/requirements into every relevant section.\n"
-    "2. Define ALL data structures with exact field names, types, nullability, default values, constraints.\n"
-    "3. For ANY communication (API, function calls, events, message passing), define exact request/response formats, "
-    "including required fields, optional fields, ordering, and encoding.\n"
-    "4. All constants, enums, config keys, environment variables, base URLs, endpoint routes, and feature flags "
-    "must be centralized in config.py or constants.py — no hardcoded values anywhere.\n"
-    "5. All API endpoint paths must be centralized in api_endpoints.py and imported — never hardcoded.\n"
-    "6. Function contracts must include: purpose, exact input/output types, preconditions, postconditions, possible errors, side effects.\n"
-    "7. Inter-agent protocols must have step-by-step flow sequences with success/failure branches, mandatory preconditions, and postconditions.\n"
-    "8. Dependency graph must ensure no circular imports and all shared imports come from shared_schemas.\n"
-    "9. Test cases must validate: data integrity, protocol compliance, cross-agent integration, and data ordering.\n"
-    "10. Scale to 100–200 agents by decomposing into the smallest coherent responsibilities.\n"
-    "11. Enforce naming conventions: Functions in snake_case <verb>_<noun>, Classes in PascalCase, Constants in UPPER_SNAKE_CASE.\n"
-    "12. All data collections must define sort key and direction in spec.\n"
-    "13. All external libraries must be listed in requirements.txt with pinned versions.\n"
-    "14. All nullable fields must be marked Optional with default values explicitly stated.\n"
-    "15. Populate EVERY spec section — never leave {} or [].\n"
-    "16. Always output strictly valid JSON — no commentary, markdown, or extra text.\n"
-    "17. Include a Global Reference Index listing ALL files, functions, agents, classes for cross-agent awareness.\n"
-    "18. Include an Error Decision Table mapping each error code to conditions and HTTP status.\n"
+    "1. Fully incorporate ALL user requirements into every relevant section.\n"
+    "2. For EVERY function, provide: purpose, exact input/output types, preconditions, postconditions, possible errors, side effects.\n"
+    "3. For EVERY function, also provide 'steps' — explicit, numbered pseudocode that leaves no ambiguity.\n"
+    "4. Define ALL data structures with exact field names, types, nullability, default values, constraints.\n"
+    "5. All constants, enums, config keys, environment variables, base URLs, and endpoint routes must be centralized in config.py or constants.py — no hardcoding.\n"
+    "6. All API endpoint paths must be centralized in api_endpoints.py.\n"
+    "7. Inter-agent protocols must have step-by-step flow sequences, including success/failure handling.\n"
+    "8. Dependency graph must avoid circular imports — all shared imports come from shared_schemas.\n"
+    "9. Test cases must validate: data integrity, protocol compliance, cross-agent integration, and ordering.\n"
+    "10. Scale to 100–200 agents by splitting into smallest coherent responsibilities.\n"
+    "11. Use strict naming conventions (snake_case for functions, PascalCase for classes, UPPER_SNAKE_CASE for constants).\n"
+    "12. Every collection must define sort key and order.\n"
+    "13. requirements.txt must have pinned versions.\n"
+    "14. All nullable fields must be Optional with explicit defaults.\n"
+    "15. Populate EVERY section — never leave {} or [].\n"
+    "16. Output strictly valid JSON — no markdown, no comments.\n"
+    "17. Include a Global Reference Index for all files, functions, agents, and classes.\n"
+    "18. Include an Error Decision Table mapping codes → conditions → HTTP status.\n"
+    "19. Include example inputs/outputs for ALL APIs and major functions.\n"
 )
 
 # ===== Spec Template =====
-SPEC_TEMPLATE = """ Project: {project} Preferences/Requirements: {clarifications} Produce STRICT JSON with every section fully populated, embedding all constraints into: description, domain_specific, agent_blueprint, api_contracts, db_schema, function_contract_manifest, inter_agent_protocols, dependency_graph, execution_plan, test_cases. {{ "version": "12.0", "generated_at": "<ISO timestamp>", "project": "<short name>", "description": "<comprehensive summary including: {clarifications}>", "project_type": "<auto-detected type>", "target_users": ["<primary user groups>"], "tech_stack": {{"language": "<main language>", "framework": "<main framework>", "database": "<db if any>"}}, "global_naming_contract": {{"agent_prefix": "<prefix>", "entity_suffix": "_entity", "service_suffix": "_service", "protocol_suffix": "_protocol", "test_suffix": "_test"}}, "data_dictionary": [{{"name": "<field>", "type": "<type>", "description": "<meaning>", "nullable": "<true/false>", "default": "<value or null>"}}], "shared_schemas": {shared_schemas}, "protocol_schemas": "<Detailed schemas for all inter-agent messages with versioning and format>", "errors_module": "<Custom exception classes + Error Decision Table mapping codes → conditions → HTTP status>", "function_contract_manifest": {{"functions": [{{"file": "<filename>", "name": "<func_name>", "description": "<what it does>", "params": {{"param": "<type>"}}, "return_type": "<type>", "errors": ["<error_code>"]}}]}}, "interface_stub_files": [ {{"file": "config.py", "description": "Centralized configuration and constants"}}, {{"file": "api_endpoints.py", "description": "Centralized API endpoint paths"}}, {{"file": "requirements.txt", "description": "Pinned dependencies for consistent environment"}}, {{"file": "<filename>", "description": "<interface purpose>"}} ], "agent_blueprint": [{{"name": "<AgentName>", "description": "<Role in system implementing: {clarifications}">}}], "api_contracts": [{{"endpoint": "<url>", "method": "<HTTP method>", "request_schema": "<schema>", "response_schema": "<schema>", "notes": "Implements: {clarifications}"}}], "db_schema": [{{"table": "<table>", "columns": [{{"name": "<col>", "type": "<type>", "constraints": "<constraints>", "nullable": "<true/false>", "default": "<value or null>", "notes": "Derived from: {clarifications}"}}]}}], "domain_specific": {{"user_constraints": "{clarifications}"}}, "inter_agent_protocols": [{{"protocol": "<name>", "description": "<flow including: {clarifications}">}}], "dependency_graph": [{{"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"], "notes": "Supports: {clarifications}"}}]], "execution_plan": [{{"step": 1, "description": "<step implementing: {clarifications}">}}], "global_reference_index": [{{"file": "<file>", "functions": ["<func1>", "<func2>"], "classes": ["<class1>"], "agents": ["<agent1>"]}}], "integration_tests": [ {{ "path": "test_schema_hash.py", "code": "import hashlib; assert hashlib.sha256(open('core_shared_schemas.py').read().encode()).hexdigest() == '{core_hash}'" }}, {{ "path": "test_manifest_compliance.py", "code": "# Validates all implemented functions match the manifest exactly" }}, {{ "path": "test_protocol_roundtrip.py", "code": "# Verifies message formats can be serialized/deserialized without loss" }} ], "test_cases": [{{"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}}] }} """.replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
+SPEC_TEMPLATE = """ Project: {project} Preferences/Requirements: {clarifications}
+Produce STRICT JSON with every section fully populated.
+{
+  "version": "12.0",
+  "generated_at": "<ISO timestamp>",
+  "project": "<short name>",
+  "description": "<comprehensive summary including: {clarifications}>",
+  "project_type": "<auto-detected type>",
+  "target_users": ["<primary user groups>"],
+  "tech_stack": {
+    "language": "<main language>",
+    "framework": "<main framework>",
+    "database": "<db if any>"
+  },
+  "global_naming_contract": {
+    "agent_prefix": "<prefix>",
+    "entity_suffix": "_entity",
+    "service_suffix": "_service",
+    "protocol_suffix": "_protocol",
+    "test_suffix": "_test"
+  },
+  "data_dictionary": [
+    {"name": "<field>", "type": "<type>", "description": "<meaning>", "nullable": "<true/false>", "default": "<value or null>"}
+  ],
+  "shared_schemas": {shared_schemas},
+  "protocol_schemas": "<Detailed schemas for all inter-agent messages with versioning, format, and example payloads>",
+  "errors_module": "<Custom exceptions + Error Decision Table mapping error codes to conditions and HTTP statuses>",
+  "function_contract_manifest": {
+    "functions": [
+      {
+        "file": "<filename>",
+        "name": "<func_name>",
+        "description": "<what it does>",
+        "params": {"<param>": "<type>"},
+        "return_type": "<type>",
+        "errors": ["<error_code>"],
+        "steps": [
+          "Step 1: ...",
+          "Step 2: ...",
+          "Step 3: ..."
+        ],
+        "example_input": { "example_field": "value" },
+        "example_output": { "example_field": "value" }
+      }
+    ]
+  },
+  "interface_stub_files": [
+    {"file": "config.py", "description": "Centralized configuration and constants"},
+    {"file": "api_endpoints.py", "description": "Centralized API endpoint paths"},
+    {"file": "requirements.txt", "description": "Pinned dependencies for consistent environment"}
+  ],
+  "agent_blueprint": [
+    {"name": "<AgentName>", "description": "<Role in system implementing: {clarifications}>"}
+  ],
+  "api_contracts": [
+    {
+      "endpoint": "<url>",
+      "method": "<HTTP method>",
+      "request_schema": "<schema>",
+      "response_schema": "<schema>",
+      "example_request": { "example_field": "value" },
+      "example_response": { "example_field": "value" }
+    }
+  ],
+  "db_schema": [
+    {
+      "table": "<table>",
+      "columns": [
+        {"name": "<col>", "type": "<type>", "constraints": "<constraints>", "nullable": "<true/false>", "default": "<value or null>"}
+      ]
+    }
+  ],
+  "domain_specific": {"user_constraints": "{clarifications}"},
+  "inter_agent_protocols": [
+    {"protocol": "<name>", "description": "<flow with steps and failure handling>"}
+  ],
+  "dependency_graph": [
+    {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}
+  ],
+  "execution_plan": [
+    {"step": 1, "description": "<implementation step>"}
+  ],
+  "global_reference_index": [
+    {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]}
+  ],
+  "integration_tests": [
+    {"path": "test_schema_hash.py", "code": "import hashlib; assert hashlib.sha256(open('core_shared_schemas.py').read().encode()).hexdigest() == '{core_hash}'"},
+    {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip serialization/deserialization"},
+    {"path": "test_end_to_end.py", "code": "# Verify main user journey across agents passes"}
+  ],
+  "test_cases": [
+    {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}
+  ]
+}
+""".replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
+# ===== Complexity Estimator =====
 def estimate_complexity(spec: Dict[str, Any]) -> int:
     endpoints = len(spec.get("api_contracts", []))
     db_tables = len(spec.get("db_schema", []))
@@ -117,38 +212,24 @@ def estimate_complexity(spec: Dict[str, Any]) -> int:
     score = (endpoints * 2) + (db_tables * 3) + (functions * 1.5) + (protocols * 2)
     return max(5, int(score))
 
+# ===== File Splitting =====
 def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> list:
-    """
-    Decide whether to split a file based on estimated LOC.
-    - Increased max_loc so fewer files get split.
-    - Skip splitting for core/shared/config/test files unless extremely large.
-    """
-    # Never split these unless absurdly huge
     skip_split_keywords = ["config", "constants", "shared", "schemas", "api_endpoints", "requirements", "test"]
     if any(k in base_file.lower() for k in skip_split_keywords) and est_loc <= 2500:
         return [base_file]
-
     if est_loc <= max_loc:
         return [base_file]
-
-    # Otherwise, split into parts
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
 
-
+# ===== Constraint Enforcement =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    """
-    Apply additional constraints to the generated spec.
-    Ensures all required files exist and calculates agent blueprint
-    with more conservative file splitting logic.
-    """
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
     if clarifications not in spec.get("description", ""):
         spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Required stub files
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
@@ -159,17 +240,9 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
-    # Collect all files mentioned anywhere in the spec
     all_files = set()
     for f in spec.get("interface_stub_files", []):
         all_files.add(f["file"])
-    for t in spec.get("integration_tests", []):
-        if "path" in t:
-            all_files.add(t["path"])
-    if "shared_schemas" in spec:
-        all_files.add("core_shared_schemas.py")
-    if spec.get("db_schema"):
-        all_files.add("db_schema.py")
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             all_files.add(dep["file"])
@@ -182,10 +255,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         if "file" in func:
             all_files.add(func["file"])
 
-    # Complexity score but capped to avoid over-splitting
     complexity_score = min(estimate_complexity(spec), 12)
-
-    # Adjust base LOC estimates per file type
     expanded_files = set()
     for file_name in all_files:
         if "service" in file_name:
@@ -196,13 +266,9 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
             est_loc = 600
         else:
             est_loc = 120
-
-        # Scale with complexity but cap multiplier
         est_loc *= min(complexity_score / 5, 2.0)
-
         expanded_files.update(split_large_modules(file_name, int(est_loc)))
 
-    # Create agent blueprint
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -214,7 +280,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 
     return spec
 
-
+# ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
     clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
     clarifications_safe = json.dumps(clarifications_raw)[1:-1]
@@ -251,6 +317,8 @@ def generate_spec(project: str, clarifications: str):
     project_state[project] = spec
     save_state(project_state)
     return spec
+
+# ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 def orchestrator():
     if request.method == "OPTIONS":
@@ -266,7 +334,6 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
-    # Step 1 — Ask for project idea
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
@@ -274,7 +341,6 @@ def orchestrator():
         session["stage"] = "clarifications"
         return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
 
-    # Step 2 — Ask for clarifications and generate orchestrator spec
     if session["stage"] == "clarifications":
         incoming_constraints = clarifications or project
         if incoming_constraints.strip():
@@ -284,12 +350,8 @@ def orchestrator():
 
         session["stage"] = "done"
         try:
-            # Generate orchestrator spec
             spec = generate_spec(session["project"], session["clarifications"])
-
-            # NEW — Run agents immediately after generating spec
             agent_outputs = run_agents_for_spec(spec)
-
             return jsonify({
                 "role": "assistant",
                 "spec": spec,
@@ -299,7 +361,6 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    # Step 3 — Allow restarting after "done"
     if session["stage"] == "done":
         if project:
             session.update({"stage": "clarifications", "project": project, "clarifications": ""})
@@ -318,6 +379,5 @@ def orchestrator():
             except Exception as e:
                 return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
 
-    # Reset to first stage if unknown state
     user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
