@@ -3,132 +3,102 @@
 from flask import Blueprint, request, jsonify
 import os
 import json
-import re
 import openai
 
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
+# ===== Extract Files from Orchestrator Spec =====
 def get_agent_files(spec):
     files = set()
 
-    # Interface stub files
+    # From interface stub files
     for f in spec.get("interface_stub_files", []):
-        if isinstance(f, dict) and isinstance(f.get("file"), str) and f["file"].strip():
-            files.add(f["file"].strip())
+        files.add(f["file"])
 
-    # Agent descriptions (extract filenames mentioned)
+    # From agent blueprint
     for agent in spec.get("agent_blueprint", []):
-        if isinstance(agent, dict):
-            desc = agent.get("description", "")
-            if isinstance(desc, str):
-                for word in desc.split():
-                    if "." in word and word.strip().endswith(".py"):
-                        files.add(word.strip())
+        desc = agent.get("description", "")
+        if "implementing" in desc:
+            part = desc.split("implementing", 1)[1].strip().split(" ")[0]
+            if part.endswith(".py") or "." in part:
+                files.add(part)
 
-    # Functions
+    # From function contracts
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if isinstance(func, dict) and isinstance(func.get("file"), str) and func["file"].strip():
-            files.add(func["file"].strip())
+        if "file" in func:
+            files.add(func["file"])
 
-    # Dependency graph
+    # From dependency graph
     for dep in spec.get("dependency_graph", []):
-        if isinstance(dep, dict):
-            if isinstance(dep.get("file"), str) and dep["file"].strip():
-                files.add(dep["file"].strip())
-            dependencies = dep.get("dependencies", [])
-            if isinstance(dependencies, list):
-                for dependency in dependencies:
-                    if isinstance(dependency, str) and dependency.strip():
-                        files.add(dependency.strip())
+        if "file" in dep:
+            files.add(dep["file"])
+        for d in dep.get("dependencies", []):
+            files.add(d)
 
-    # Global reference index
+    # From global reference index
     for ref in spec.get("global_reference_index", []):
-        if isinstance(ref, dict) and isinstance(ref.get("file"), str) and ref["file"].strip():
-            files.add(ref["file"].strip())
+        if "file" in ref:
+            files.add(ref["file"])
 
     return sorted(files)
 
 
 # ===== Extract Relevant Details for a Single File =====
 def extract_file_spec(spec, file_name):
+    """
+    Extract only the details relevant to the given file so the coding agent
+    is not overwhelmed with irrelevant information.
+    """
     file_spec = {
         "file_name": file_name,
         "functions": [],
         "db_tables": [],
         "api_endpoints": [],
         "protocols": [],
-        "errors_module": spec.get("errors_module"),
         "shared_schemas": spec.get("shared_schemas"),
-        "config_and_constants": None,
-        "global_naming_contract": spec.get("global_naming_contract", {}),
-        "dependency_graph": spec.get("dependency_graph", []),
+        "config_and_constants": None
     }
 
+    # Functions for this file
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if func.get("file") == file_name:
             file_spec["functions"].append(func)
 
+    # DB tables if this file likely touches persistence
     for table in spec.get("db_schema", []):
-        if "db" in file_name.lower() or any(table["table"] in json.dumps(func) for func in file_spec["functions"]):
-            file_spec["db_tables"].append(table)
+        for col in table.get("columns", []):
+            # crude match: if file name suggests DB logic OR function uses table name
+            if "db" in file_name.lower() or any(
+                table["table"] in json.dumps(func) for func in file_spec["functions"]
+            ):
+                if table not in file_spec["db_tables"]:
+                    file_spec["db_tables"].append(table)
 
+    # API endpoints relevant to this file
     for api in spec.get("api_contracts", []):
-        if file_name in json.dumps(api) or any(func.get("name") in json.dumps(api) for func in file_spec["functions"]):
-            file_spec["api_endpoints"].append(api)
+        for func in file_spec["functions"]:
+            if func.get("name") in json.dumps(api):
+                file_spec["api_endpoints"].append(api)
 
+    # Inter-agent protocols relevant to this file
     for proto in spec.get("inter_agent_protocols", []):
-        if file_name in json.dumps(proto) or any(func.get("name") in json.dumps(proto) for func in file_spec["functions"]):
+        if file_name in json.dumps(proto):
             file_spec["protocols"].append(proto)
+        else:
+            # Also match by function names used in protocols
+            for func in file_spec["functions"]:
+                if func.get("name") in json.dumps(proto):
+                    file_spec["protocols"].append(proto)
+                    break
 
+    # Config & constants file reference
     for f in spec.get("interface_stub_files", []):
         if f["file"] == "config.py":
             file_spec["config_and_constants"] = f
 
     return file_spec
-
-
-# ===== Output Validation =====
-def validate_generated_code(file_name, file_spec, code, spec):
-    """
-    Returns (bool, errors_list) where bool indicates pass/fail.
-    """
-
-    errors = []
-    required_funcs = [f["name"] for f in file_spec["functions"]]
-
-    # Check all required functions exist
-    for func in required_funcs:
-        if not re.search(rf"def\s+{func}\s*\(", code):
-            errors.append(f"Missing required function: {func}")
-
-    # Check for unexpected functions
-    defined_funcs = re.findall(r"def\s+([a-zA-Z_]\w*)\s*\(", code)
-    for df in defined_funcs:
-        if df not in required_funcs and required_funcs:
-            errors.append(f"Extra unexpected function: {df}")
-
-    # Check imports match dependency graph
-    allowed_imports = []
-    for dep in spec.get("dependency_graph", []):
-        if dep.get("file") == file_name:
-            allowed_imports.extend(dep.get("dependencies", []))
-    for imp in re.findall(r"from\s+([\w\.]+)\s+import", code):
-        if not any(dep_file.replace(".py", "") in imp for dep_file in allowed_imports):
-            errors.append(f"Invalid import: {imp}")
-
-    # Config constants must be imported, not hardcoded
-    if "config.py" in [d for dep in spec.get("dependency_graph", []) if dep.get("file") == file_name]:
-        if re.search(r"=\s*['\"]\w+['\"]", code):
-            errors.append("Hardcoded string constant found instead of config import")
-
-    # Special case: requirements.txt should have only packages
-    if file_name == "requirements.txt":
-        lines = [l.strip() for l in code.splitlines() if l.strip()]
-        for l in lines:
-            if l.endswith(".py"):
-                errors.append("requirements.txt contains file name instead of package")
-
-    return (len(errors) == 0, errors)
 
 
 # ===== Spawn Agents for Each File =====
@@ -139,56 +109,45 @@ def run_agents_for_spec(spec):
     for file_name in files:
         file_spec = extract_file_spec(spec, file_name)
 
-        agent_prompt = f"""
-You are a coding agent assigned to implement ONLY the file: {file_name}
+        agent_prompt = (
+            f"You are a coding agent assigned to implement ONLY the file: {file_name}\n\n"
+            f"Follow these STRICT rules:\n"
+            f"1. Implement EXACTLY what is described for this file — no extra features.\n"
+            f"2. Follow the function signatures, parameters, return types, and pseudocode steps EXACTLY.\n"
+            f"3. Use only constants/configs from config.py; never hardcode values.\n"
+            f"4. Use imports exactly as described; import shared classes/functions from core_shared_schemas.py.\n"
+            f"5. Produce fully working code — no placeholders, no TODOs.\n"
+            f"6. Output ONLY valid Python code for this file, nothing else.\n\n"
+            f"FILE-SPECIFIC IMPLEMENTATION DETAILS:\n"
+            f"{json.dumps(file_spec, indent=2)}"
+        )
 
-Rules:
-1. Implement EXACTLY what is described in file_spec — no extra features.
-2. If you need logic from another file, import it exactly as per dependency_graph — never reimplement.
-3. Follow function signatures, parameters, return types, and pseudocode steps exactly.
-4. All constants & configs must be imported from config.py — never hardcode.
-5. Output only raw code — no markdown, no explanations.
-6. Do not implement other files' logic.
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": "You are a coding agent that outputs only the complete code for your assigned file."},
+                {"role": "user", "content": agent_prompt}
+            ]
+        )
 
-=== FILE SPEC ===
-{json.dumps(file_spec, indent=2)}
-
-=== CROSS-FILE CONTEXT ===
-Data Dictionary: {json.dumps(spec.get("data_dictionary", []), indent=2)}
-Database Schema: {json.dumps(spec.get("db_schema", []), indent=2)}
-API Contracts: {json.dumps(spec.get("api_contracts", []), indent=2)}
-Inter-Agent Protocols: {json.dumps(spec.get("inter_agent_protocols", []), indent=2)}
-Errors Module: {json.dumps(spec.get("errors_module", {}), indent=2)}
-"""
-
-        retries = 0
-        while retries < 2:
-            resp = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                temperature=0.0,
-                messages=[
-                    {"role": "system", "content": "You output only the complete, correct code for the assigned file."},
-                    {"role": "user", "content": agent_prompt}
-                ]
-            )
-            code_output = resp.choices[0].message["content"].strip()
-
-            valid, errs = validate_generated_code(file_name, file_spec, code_output, spec)
-            if valid:
-                outputs.append({"file": file_name, "code": code_output})
-                break
-            else:
-                agent_prompt += f"\n\nYour last output failed validation for: {errs}. Regenerate correctly."
-                retries += 1
-        else:
-            outputs.append({"file": file_name, "code": f"❌ Failed after retries. Last errors: {errs}"})
+        outputs.append({
+            "file": file_name,
+            "code": resp.choices[0].message["content"]
+        })
 
     return outputs
 
 
-# ===== Flask Route =====
+# ===== Flask Route to Run Agents =====
 @agents_pipeline_bp.route("/run_agents", methods=["POST"])
 def run_agents_endpoint():
+    """
+    Expects JSON:
+    {
+        "spec": { ... }  # full orchestrator output
+    }
+    """
     body = request.get_json(force=True) or {}
     spec = body.get("spec")
     if not spec:

@@ -86,28 +86,24 @@ SPEC_SYSTEM = (
     "can implement their files in isolation and when combined, the system runs flawlessly without manual fixes.\n"
     "--- UNIVERSAL COMPATIBILITY RULES ---\n"
     "1. Fully incorporate ALL user requirements into every relevant section.\n"
-    "2. For EVERY function in function_contract_manifest:\n"
-    "   - Provide purpose, exact input/output types, preconditions, postconditions, possible errors, side effects.\n"
-    "   - Provide 'steps' — explicit, numbered pseudocode containing exact imports, method calls, database queries, API calls, and config constant references.\n"
-    "   - Never use vague instructions like 'check database' — always reference the exact class/method/file to call.\n"
-    "   - Always include at least 5 steps unless the function is trivially one line.\n"
-    "3. Define ALL data structures with exact field names, types, nullability, default values, constraints.\n"
-    "4. All constants, enums, config keys, environment variables, base URLs, and endpoint routes must be centralized in config.py or constants.py — no hardcoding.\n"
-    "5. All API endpoint paths must be centralized in api_endpoints.py.\n"
-    "6. Inter-agent protocols must have step-by-step flow sequences, including success/failure handling, with concrete examples.\n"
-    "7. Dependency graph must avoid circular imports — all shared imports come from shared_schemas.\n"
-    "8. Test cases must validate: data integrity, protocol compliance, cross-agent integration, and ordering.\n"
-    "9. Scale to 100–200 agents by splitting into smallest coherent responsibilities.\n"
-    "10. Use strict naming conventions (snake_case for functions, PascalCase for classes, UPPER_SNAKE_CASE for constants).\n"
-    "11. Every collection must define sort key and order.\n"
-    "12. requirements.txt must have pinned versions.\n"
-    "13. All nullable fields must be Optional with explicit defaults.\n"
-    "14. Populate EVERY section — never leave {} or [].\n"
-    "15. Output strictly valid JSON — no markdown, no comments.\n"
-    "16. Include a Global Reference Index for all files, functions, agents, and classes.\n"
-    "17. Include an Error Decision Table mapping codes → conditions → HTTP status.\n"
-    "18. Include example inputs/outputs for ALL APIs and major functions.\n"
-    "19. Make sure all functions in function_contract_manifest are cross-file aware — reference the exact DB schema tables, service classes, and protocols defined elsewhere in the spec.\n"
+    "2. For EVERY function, provide: purpose, exact input/output types, preconditions, postconditions, possible errors, side effects.\n"
+    "3. For EVERY function, also provide 'steps' — explicit, numbered pseudocode that leaves no ambiguity.\n"
+    "4. Define ALL data structures with exact field names, types, nullability, default values, constraints.\n"
+    "5. All constants, enums, config keys, environment variables, base URLs, and endpoint routes must be centralized in config.py or constants.py — no hardcoding.\n"
+    "6. All API endpoint paths must be centralized in api_endpoints.py.\n"
+    "7. Inter-agent protocols must have step-by-step flow sequences, including success/failure handling.\n"
+    "8. Dependency graph must avoid circular imports — all shared imports come from shared_schemas.\n"
+    "9. Test cases must validate: data integrity, protocol compliance, cross-agent integration, and ordering.\n"
+    "10. Scale to 100–200 agents by splitting into smallest coherent responsibilities.\n"
+    "11. Use strict naming conventions (snake_case for functions, PascalCase for classes, UPPER_SNAKE_CASE for constants).\n"
+    "12. Every collection must define sort key and order.\n"
+    "13. requirements.txt must have pinned versions.\n"
+    "14. All nullable fields must be Optional with explicit defaults.\n"
+    "15. Populate EVERY section — never leave {} or [].\n"
+    "16. Output strictly valid JSON — no markdown, no comments.\n"
+    "17. Include a Global Reference Index for all files, functions, agents, and classes.\n"
+    "18. Include an Error Decision Table mapping codes → conditions → HTTP status.\n"
+    "19. Include example inputs/outputs for ALL APIs and major functions.\n"
 )
 
 # ===== Spec Template =====
@@ -140,26 +136,23 @@ Produce STRICT JSON with every section fully populated.
   "errors_module": "<Custom exceptions + Error Decision Table mapping error codes to conditions and HTTP statuses>",
   "function_contract_manifest": {
     "functions": [
-        {
-            "file": "<filename>",
-            "name": "<func_name>",
-            "description": "<what it does>",
-            "params": {"<param>": "<type>"},
-            "return_type": "<type>",
-            "errors": ["<error_code>"],
-            "steps": [
-                "Step 1: Import all required classes and functions from the correct files, e.g., DatabaseService from db_service.py, ServiceResponse from core_shared_schemas.py.",
-                "Step 2: Create or access required service or database instances using config.py constants where applicable.",
-                "Step 3: Perform the primary validation or computation task, explicitly calling the relevant methods defined in other files.",
-                "Step 4: Handle error conditions by returning ServiceResponse objects with correct Status and ErrorCode enums.",
-                "Step 5: On success, perform all necessary updates, commits, or responses exactly as specified.",
-                "Step 6: Return the final ServiceResponse object with the correct success message and any data required."
-            ],
-            "example_input": { "example_field": "value" },
-            "example_output": { "example_field": "value" }
-        }
+      {
+        "file": "<filename>",
+        "name": "<func_name>",
+        "description": "<what it does>",
+        "params": {"<param>": "<type>"},
+        "return_type": "<type>",
+        "errors": ["<error_code>"],
+        "steps": [
+          "Step 1: ...",
+          "Step 2: ...",
+          "Step 3: ..."
+        ],
+        "example_input": { "example_field": "value" },
+        "example_output": { "example_field": "value" }
+      }
     ]
-},
+  },
   "interface_stub_files": [
     {"file": "config.py", "description": "Centralized configuration and constants"},
     {"file": "api_endpoints.py", "description": "Centralized API endpoint paths"},
@@ -228,15 +221,15 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
         return [base_file]
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
+
+# ===== Constraint Enforcement =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    # Attach constraints
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
     if clarifications not in spec.get("description", ""):
         spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Ensure required files exist
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
@@ -244,39 +237,24 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
     for fname, desc in required_files:
-        if not any(isinstance(f, dict) and f.get("file") == fname for f in spec.get("interface_stub_files", [])):
+        if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
-    # Collect all files
     all_files = set()
-
-    # From interface stub files
     for f in spec.get("interface_stub_files", []):
-        if isinstance(f, dict) and isinstance(f.get("file"), str) and f["file"].strip():
-            all_files.add(f["file"].strip())
-
-    # From dependency graph
+        all_files.add(f["file"])
     for dep in spec.get("dependency_graph", []):
-        if isinstance(dep, dict):
-            if isinstance(dep.get("file"), str) and dep["file"].strip():
-                all_files.add(dep["file"].strip())
-            dependencies = dep.get("dependencies", [])
-            if isinstance(dependencies, list):
-                for dependency in dependencies:
-                    if isinstance(dependency, str) and dependency.strip():
-                        all_files.add(dependency.strip())
-
-    # From global reference index
+        if "file" in dep:
+            all_files.add(dep["file"])
+        for d in dep.get("dependencies", []):
+            all_files.add(d)
     for ref in spec.get("global_reference_index", []):
-        if isinstance(ref, dict) and isinstance(ref.get("file"), str) and ref["file"].strip():
-            all_files.add(ref["file"].strip())
-
-    # From function contract manifest
+        if "file" in ref:
+            all_files.add(ref["file"])
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if isinstance(func, dict) and isinstance(func.get("file"), str) and func["file"].strip():
-            all_files.add(func["file"].strip())
+        if "file" in func:
+            all_files.add(func["file"])
 
-    # Expand large modules
     complexity_score = min(estimate_complexity(spec), 12)
     expanded_files = set()
     for file_name in all_files:
@@ -291,7 +269,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         est_loc *= min(complexity_score / 5, 2.0)
         expanded_files.update(split_large_modules(file_name, int(est_loc)))
 
-    # Generate agent blueprint
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -302,8 +279,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         })
 
     return spec
-
-
 
 # ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
