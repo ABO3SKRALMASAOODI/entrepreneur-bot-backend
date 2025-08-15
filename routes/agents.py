@@ -228,16 +228,14 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
         return [base_file]
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
-# ===== Constraint Enforcement =====
-def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    # Store user constraints
+
+    def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
     if clarifications not in spec.get("description", ""):
         spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Ensure required files are present
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("api_endpoints.py", "Centralized API endpoint paths"),
@@ -248,7 +246,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
             spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
 
-    # Collect all files mentioned in the spec
     all_files = set()
 
     # From interface stub files
@@ -256,7 +253,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         if isinstance(f, dict) and "file" in f and f["file"]:
             all_files.add(f["file"])
 
-    # From dependency graph (safe iteration)
+    # From dependency graph (fixed indentation and safety)
     for dep in spec.get("dependency_graph", []):
         if isinstance(dep, dict):
             if "file" in dep and dep["file"]:
@@ -275,7 +272,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         if isinstance(func, dict) and "file" in func and func["file"]:
             all_files.add(func["file"])
 
-    # Estimate complexity to decide splitting
     complexity_score = min(estimate_complexity(spec), 12)
     expanded_files = set()
     for file_name in all_files:
@@ -290,7 +286,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         est_loc *= min(complexity_score / 5, 2.0)
         expanded_files.update(split_large_modules(file_name, int(est_loc)))
 
-    # Build agent blueprint
+    # Agent blueprint creation
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -301,6 +297,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         })
 
     return spec
+
 
 # ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
