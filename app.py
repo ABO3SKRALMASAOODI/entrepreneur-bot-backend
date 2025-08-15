@@ -3,8 +3,6 @@ from flask_cors import CORS
 from routes.auth import auth_bp
 from routes.chat import chat_bp
 from routes.verify_email import verify_bp
-
-
 from models import init_db
 import os
 from dotenv import load_dotenv
@@ -13,20 +11,16 @@ from routes.paddle import paddle_bp as paddle_checkout_bp
 from routes.paddle_webhook import paddle_webhook
 from routes.agents import agents_bp
 
-
-
-
-
-
 load_dotenv()
 
 def create_app():
     app = Flask(__name__)
-    CORS(app)
+
+    # ✅ Explicitly allow your frontend domain
+    CORS(app, resources={r"/*": {"origins": "https://thehustlerbot.com"}})
 
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "supersecretkey")
     app.config['DATABASE_URL'] = os.getenv("DATABASE_URL")
-
 
     init_db(app)
 
@@ -40,7 +34,6 @@ def create_app():
     app.register_blueprint(paddle_checkout_bp)
     app.register_blueprint(paddle_webhook)
     app.register_blueprint(agents_bp, url_prefix="/api/agents")
- 
 
     return app
 
