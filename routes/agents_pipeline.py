@@ -10,32 +10,41 @@ agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-# ===== Extract Files from Orchestrator Spec =====
 def get_agent_files(spec):
     files = set()
 
+    # Interface stub files
     for f in spec.get("interface_stub_files", []):
-        files.add(f["file"])
+        if isinstance(f, dict) and isinstance(f.get("file"), str) and f["file"].strip():
+            files.add(f["file"].strip())
 
+    # Agent descriptions (extract filenames mentioned)
     for agent in spec.get("agent_blueprint", []):
-        desc = agent.get("description", "")
-        for word in desc.split():
-            if "." in word and word.endswith(".py"):
-                files.add(word.strip())
+        if isinstance(agent, dict):
+            desc = agent.get("description", "")
+            if isinstance(desc, str):
+                for word in desc.split():
+                    if "." in word and word.strip().endswith(".py"):
+                        files.add(word.strip())
 
+    # Functions
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if "file" in func:
-            files.add(func["file"])
+        if isinstance(func, dict) and isinstance(func.get("file"), str) and func["file"].strip():
+            files.add(func["file"].strip())
 
+    # Dependency graph
     for dep in spec.get("dependency_graph", []):
-        if "file" in dep:
-            files.add(dep["file"])
-        for d in dep.get("dependencies", []):
-            files.add(d)
+        if isinstance(dep, dict):
+            if isinstance(dep.get("file"), str) and dep["file"].strip():
+                files.add(dep["file"].strip())
+            for dependency in dep.get("dependencies", []):
+                if isinstance(dependency, str) and dependency.strip():
+                    files.add(dependency.strip())
 
+    # Global reference index
     for ref in spec.get("global_reference_index", []):
-        if "file" in ref:
-            files.add(ref["file"])
+        if isinstance(ref, dict) and isinstance(ref.get("file"), str) and ref["file"].strip():
+            files.add(ref["file"].strip())
 
     return sorted(files)
 
