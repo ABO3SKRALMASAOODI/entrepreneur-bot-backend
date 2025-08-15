@@ -12,7 +12,7 @@ import openai
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-MAX_RETRIES = 10
+MAX_RETRIES = 100
 
 # =====================================================
 # 1. Utility Functions
