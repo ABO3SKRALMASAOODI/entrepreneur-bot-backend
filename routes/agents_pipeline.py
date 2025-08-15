@@ -8,36 +8,38 @@ import openai
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-
 # ===== Extract Files from Orchestrator Spec =====
 def get_agent_files(spec):
+    """
+    Determine which files need to be implemented by agents.
+    Uses multiple sections of the spec to ensure full coverage.
+    """
     files = set()
 
-    # From interface stub files
+    # Interface stub files
     for f in spec.get("interface_stub_files", []):
         files.add(f["file"])
 
-    # From agent blueprint
+    # Agent blueprint descriptions
     for agent in spec.get("agent_blueprint", []):
         desc = agent.get("description", "")
-        if "implementing" in desc:
-            part = desc.split("implementing", 1)[1].strip().split(" ")[0]
-            if part.endswith(".py") or "." in part:
-                files.add(part)
+        for word in desc.split():
+            if "." in word and word.endswith(".py"):
+                files.add(word.strip())
 
-    # From function contracts
+    # Function contracts
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             files.add(func["file"])
 
-    # From dependency graph
+    # Dependency graph
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             files.add(dep["file"])
         for d in dep.get("dependencies", []):
             files.add(d)
 
-    # From global reference index
+    # Global reference index
     for ref in spec.get("global_reference_index", []):
         if "file" in ref:
             files.add(ref["file"])
@@ -48,8 +50,8 @@ def get_agent_files(spec):
 # ===== Extract Relevant Details for a Single File =====
 def extract_file_spec(spec, file_name):
     """
-    Extract only the details relevant to the given file so the coding agent
-    is not overwhelmed with irrelevant information.
+    Pull only the details needed for the agent implementing file_name,
+    plus relevant cross-file context so the agent never guesses.
     """
     file_spec = {
         "file_name": file_name,
@@ -57,8 +59,11 @@ def extract_file_spec(spec, file_name):
         "db_tables": [],
         "api_endpoints": [],
         "protocols": [],
+        "errors_module": spec.get("errors_module"),
         "shared_schemas": spec.get("shared_schemas"),
-        "config_and_constants": None
+        "config_and_constants": None,
+        "global_naming_contract": spec.get("global_naming_contract", {}),
+        "dependency_graph": spec.get("dependency_graph", []),
     }
 
     # Functions for this file
@@ -66,34 +71,22 @@ def extract_file_spec(spec, file_name):
         if func.get("file") == file_name:
             file_spec["functions"].append(func)
 
-    # DB tables if this file likely touches persistence
+    # DB tables touched by this file
     for table in spec.get("db_schema", []):
-        for col in table.get("columns", []):
-            # crude match: if file name suggests DB logic OR function uses table name
-            if "db" in file_name.lower() or any(
-                table["table"] in json.dumps(func) for func in file_spec["functions"]
-            ):
-                if table not in file_spec["db_tables"]:
-                    file_spec["db_tables"].append(table)
+        if "db" in file_name.lower() or any(table["table"] in json.dumps(func) for func in file_spec["functions"]):
+            file_spec["db_tables"].append(table)
 
     # API endpoints relevant to this file
     for api in spec.get("api_contracts", []):
-        for func in file_spec["functions"]:
-            if func.get("name") in json.dumps(api):
-                file_spec["api_endpoints"].append(api)
+        if file_name in json.dumps(api) or any(func.get("name") in json.dumps(api) for func in file_spec["functions"]):
+            file_spec["api_endpoints"].append(api)
 
     # Inter-agent protocols relevant to this file
     for proto in spec.get("inter_agent_protocols", []):
-        if file_name in json.dumps(proto):
+        if file_name in json.dumps(proto) or any(func.get("name") in json.dumps(proto) for func in file_spec["functions"]):
             file_spec["protocols"].append(proto)
-        else:
-            # Also match by function names used in protocols
-            for func in file_spec["functions"]:
-                if func.get("name") in json.dumps(proto):
-                    file_spec["protocols"].append(proto)
-                    break
 
-    # Config & constants file reference
+    # Config & constants
     for f in spec.get("interface_stub_files", []):
         if f["file"] == "config.py":
             file_spec["config_and_constants"] = f
@@ -103,38 +96,62 @@ def extract_file_spec(spec, file_name):
 
 # ===== Spawn Agents for Each File =====
 def run_agents_for_spec(spec):
+    """
+    Executes one coding agent per file in the spec.
+    Returns a list of {file, code}.
+    """
     files = get_agent_files(spec)
     outputs = []
 
     for file_name in files:
         file_spec = extract_file_spec(spec, file_name)
 
-        agent_prompt = (
-            f"You are a coding agent assigned to implement ONLY the file: {file_name}\n\n"
-            f"Follow these STRICT rules:\n"
-            f"1. Implement EXACTLY what is described for this file — no extra features.\n"
-            f"2. Follow the function signatures, parameters, return types, and pseudocode steps EXACTLY.\n"
-            f"3. Use only constants/configs from config.py; never hardcode values.\n"
-            f"4. Use imports exactly as described; import shared classes/functions from core_shared_schemas.py.\n"
-            f"5. Produce fully working code — no placeholders, no TODOs.\n"
-            f"6. Output ONLY valid Python code for this file, nothing else.\n\n"
-            f"FILE-SPECIFIC IMPLEMENTATION DETAILS:\n"
-            f"{json.dumps(file_spec, indent=2)}"
-        )
+        # Build the strictest possible prompt
+        agent_prompt = f"""
+You are a coding agent assigned to implement ONLY the file: {file_name}
 
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            temperature=0,
-            messages=[
-                {"role": "system", "content": "You are a coding agent that outputs only the complete code for your assigned file."},
-                {"role": "user", "content": agent_prompt}
-            ]
-        )
+Follow these rules with ZERO deviation:
+1. Implement EXACTLY as described in the given file_spec.
+2. Use the function signatures, parameters, return types, and pseudocode steps from file_spec — word for word.
+3. Do NOT invent logic, rename anything, or skip any step.
+4. All constants & configs come from config.py — never hardcode.
+5. Imports must match the exact files/names in dependency_graph.
+6. Output only fully working, production-ready Python code — no placeholders, no TODOs.
+7. Do not include any comments unless explicitly stated in file_spec.
+8. The output must be only raw Python code — no markdown fences, no explanations.
 
-        outputs.append({
-            "file": file_name,
-            "code": resp.choices[0].message["content"]
-        })
+=== FILE SPEC ===
+{json.dumps(file_spec, indent=2)}
+
+=== CROSS-FILE CONTEXT ===
+Data Dictionary: {json.dumps(spec.get("data_dictionary", []), indent=2)}
+Database Schema: {json.dumps(spec.get("db_schema", []), indent=2)}
+API Contracts: {json.dumps(spec.get("api_contracts", []), indent=2)}
+Inter-Agent Protocols: {json.dumps(spec.get("inter_agent_protocols", []), indent=2)}
+Errors Module: {json.dumps(spec.get("errors_module", {}), indent=2)}
+Shared Schemas: {spec.get("shared_schemas", "")}
+"""
+
+        try:
+            resp = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                temperature=0.0,
+                messages=[
+                    {"role": "system", "content": "You are a coding agent that outputs only the complete code for your assigned file."},
+                    {"role": "user", "content": agent_prompt}
+                ]
+            )
+
+            outputs.append({
+                "file": file_name,
+                "code": resp.choices[0].message["content"].strip()
+            })
+
+        except Exception as e:
+            outputs.append({
+                "file": file_name,
+                "code": f"❌ Agent failed: {e}"
+            })
 
     return outputs
 
