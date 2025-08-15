@@ -229,7 +229,7 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
 
- def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
+def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
