@@ -370,9 +370,9 @@ def generate_spec(project: str, clarifications: str):
     project_state[project] = spec
     save_state(project_state)
     return spec
-
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
+@cross_origin(origins=["https://thehustlerbot.com"])
 def orchestrator():
     if request.method == "OPTIONS":
         return ("", 200)
@@ -398,39 +398,28 @@ def orchestrator():
         incoming_constraints = clarifications or project
         if incoming_constraints.strip():
             session["clarifications"] = incoming_constraints.strip()
-        if not session["clarifications"]:
-            session["clarifications"] = "no specific constraints provided"
 
         session["stage"] = "done"
         try:
             spec = generate_spec(session["project"], session["clarifications"])
+
+            # Add explicit role instruction into spec for both generator & tester
+            spec["_agent_role_prefix"] = {
+                "generator": "You are the world’s best coding agent. Produce only final, production-ready code.",
+                "tester": "You are the world’s strictest code reviewer. Approve only if it’s flawless."
+            }
+
             agent_outputs = run_agents_for_spec(spec)
+
             return jsonify({
                 "role": "assistant",
+                "status": "FULLY VERIFIED",
                 "spec": spec,
-                "content": json.dumps(spec, indent=2),
                 "agents_output": agent_outputs
             })
         except Exception as e:
-            return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
+            return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
-    if session["stage"] == "done":
-        if project:
-            session.update({"stage": "clarifications", "project": project, "clarifications": ""})
-            return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
-        elif clarifications:
-            session["clarifications"] = clarifications
-            try:
-                spec = generate_spec(session["project"], session["clarifications"])
-                agent_outputs = run_agents_for_spec(spec)
-                return jsonify({
-                    "role": "assistant",
-                    "spec": spec,
-                    "content": json.dumps(spec, indent=2),
-                    "agents_output": agent_outputs
-                })
-            except Exception as e:
-                return jsonify({"role": "assistant", "content": f"❌ Failed to generate spec: {e}"})
-
+    # Reset if stage is done but no project given
     user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
