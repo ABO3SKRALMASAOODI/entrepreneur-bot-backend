@@ -152,26 +152,31 @@ def verify_tests(outputs, spec):
 # =====================================================
 
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
-    """Generator Agent: produces final, production-ready code."""
-    feedback_note = f"\n\nIMPORTANT: FIX **ALL** of these issues in one go:\n{review_feedback}" if review_feedback else ""
+    """Generator Agent: produces final, production-ready code in one pass."""
+    feedback_note = ""
+    if review_feedback:
+        feedback_note = (
+            "\n\nIMPORTANT: You MUST address EVERY SINGLE ITEM from the feedback list below "
+            "in this revision. Do not leave any point unresolved. "
+            "Do not introduce new violations. "
+            "After implementing, mentally verify each feedback point is resolved.\n\n"
+            f"FEEDBACK TO FIX:\n{review_feedback}"
+        )
 
     role_prefix = full_spec.get("_agent_role_prefix", {}).get("generator", "")
 
     agent_prompt = f"""{role_prefix}
 
-You are a **world-class elite coding agent** responsible for producing the FINAL, PRODUCTION-READY implementation of **{file_name}**.
+You are the **world’s most elite coding agent** for file: **{file_name}**.
 
-NON-NEGOTIABLE RULES:
-1. You own **{file_name}** completely — implement every required detail from the spec.
-2. Follow the orchestrator spec EXACTLY — no extra features, no deviations.
-3. Ensure 100% compatibility with all other files.
-4. No placeholders, TODOs, stubs, or partial logic — the file must be fully functional.
-5. Include all imports, constants, and configs exactly as required.
-6. Pass ALL integration tests without modification by the tester.
-7. Optimize for clarity, maintainability, and performance.
-8. Include proper error handling, logging, and docstrings for all public functions.
-9. Incorporate **ALL** feedback from the tester in a single revision — do not leave any point unaddressed.
-10. Output **only** the complete, final code for {file_name} — nothing else.
+STRICT NON-NEGOTIABLE RULES:
+1. Implement exactly as per the orchestrator spec — no deviations, no omissions.
+2. Address **all** tester feedback points in this single revision — 100% coverage.
+3. Maintain full compatibility with all other files in the project.
+4. No placeholders, TODOs, or partial logic — complete, production-ready code only.
+5. Preserve performance, maintainability, and security best practices.
+6. Follow naming conventions, type hints, docstrings, error handling, and logging policies as in the spec.
+7. Output ONLY the full final code for {file_name} — nothing else.
 
 FULL PROJECT CONTEXT:
 {json.dumps(full_spec, indent=2)}
@@ -185,7 +190,7 @@ FILE-SPECIFIC IMPLEMENTATION DETAILS:
         model="gpt-4o-mini",
         temperature=0,
         messages=[
-            {"role": "system", "content": "You are a perfectionist coding agent producing flawless, final code."},
+            {"role": "system", "content": "You are a perfectionist coding agent producing flawless, final code. You must fix all feedback points in one go."},
             {"role": "user", "content": agent_prompt}
         ]
     )
@@ -193,27 +198,19 @@ FILE-SPECIFIC IMPLEMENTATION DETAILS:
 
 
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
-    """Tester Agent: reviews code and lists ALL violations in one pass."""
+    """Tester Agent: exhaustive review in one pass — no new issues later."""
     role_prefix = full_spec.get("_agent_role_prefix", {}).get("tester", "")
 
     tester_prompt = f"""{role_prefix}
 
-You are a **world-class senior software reviewer**.
+You are the **strictest software reviewer alive**.
 
-TASK:
-- Review ONLY **{file_name}** produced by the Generator Agent.
-- List **all** violations at once so the generator can fix them in one attempt.
-
-APPROVAL RULES:
-- Approve ONLY if the file is 100% correct, complete, and passes all requirements.
-
-OUTPUT FORMAT:
-- If perfect: ONLY output the keyword: ✅ APPROVED
-- If not perfect: Output a **structured, exhaustive critique** with:
-  1. **List of ALL violations** (clear, numbered)
-  2. **Exact lines or missing features**
-  3. **Precise instructions for correction**
-  4. Do not omit any errors — list them all in one review.
+REVIEW RULES:
+- Perform a **full exhaustive review** of {file_name}.
+- List **ALL** violations, style issues, missing features, security concerns, or incompatibilities — in this **single review**.
+- DO NOT leave issues for later reviews — once approved, you cannot reject in the future.
+- If there are violations, output them all at once, clearly numbered, with exact fixes.
+- If perfect, output ONLY: ✅ APPROVED
 
 FULL PROJECT CONTEXT:
 {json.dumps(full_spec, indent=2)}
@@ -229,11 +226,12 @@ GENERATED CODE TO REVIEW:
         model="gpt-4o-mini",
         temperature=0,
         messages=[
-            {"role": "system", "content": "You are a perfectionist code reviewer. You must list ALL violations in one pass."},
+            {"role": "system", "content": "You are a perfectionist code reviewer. You must list ALL violations in one pass. Once you approve, you can never reject again."},
             {"role": "user", "content": tester_prompt}
         ]
     )
     return resp.choices[0].message["content"]
+
 
 # =====================================================
 # 3. Main Runner Loop
