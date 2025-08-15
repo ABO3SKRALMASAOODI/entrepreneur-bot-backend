@@ -229,7 +229,7 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
     num_parts = (est_loc // max_loc) + 1
     return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
 
-    def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
+ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
@@ -253,7 +253,7 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
         if isinstance(f, dict) and "file" in f and f["file"]:
             all_files.add(f["file"])
 
-    # From dependency graph (fixed indentation and safety)
+    # From dependency graph
     for dep in spec.get("dependency_graph", []):
         if isinstance(dep, dict):
             if "file" in dep and dep["file"]:
@@ -286,7 +286,6 @@ def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> li
         est_loc *= min(complexity_score / 5, 2.0)
         expanded_files.update(split_large_modules(file_name, int(est_loc)))
 
-    # Agent blueprint creation
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
