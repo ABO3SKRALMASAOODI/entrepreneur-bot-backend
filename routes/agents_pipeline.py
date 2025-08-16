@@ -248,18 +248,13 @@ def is_hard_failure(review: str) -> bool:
     ]
     return any(term.lower() in review.lower() for term in critical_terms)
 def run_agents_for_spec(spec: dict) -> dict:
-    """
-    Orchestrator → Agents → Tester → Fixer pipeline with restructuring fallback.
-    Generates all required files for a project specification.
-    """
-
     final_outputs = {}
     failures = {}
 
-    # Collect all candidate files to generate
     candidate_files = get_agent_files(spec)
 
-    for file_name, file_spec in candidate_files.items():
+    for file_name in candidate_files:
+        file_spec = extract_file_spec(spec, file_name)
         print(f"[Pipeline] Starting generation for: {file_name}")
 
         generated_code = None
@@ -272,29 +267,17 @@ def run_agents_for_spec(spec: dict) -> dict:
             attempts += 1
 
             if attempts == 1:
-                # First attempt: raw codegen
-                generated_code = run_code_agent(file_name, file_spec, spec)
+                generated_code = run_generator_agent(file_name, file_spec, spec)
             else:
-                # Retry path
                 if attempts >= 3 and review_feedback:
-                    # Escalate after 2 failures → restructuring agent
-                    print(f"[Pipeline] Escalating {file_name} to restructuring agent")
-                    generated_code = run_restructuring_agent(
-                        file_name, file_spec, spec, generated_code, review_feedback
-                    )
+                    generated_code = run_restructuring_agent(file_name, file_spec, spec, generated_code, review_feedback)
                 else:
-                    # Normal fix path
-                    generated_code = run_fixer_agent(
-                        file_name, file_spec, spec, generated_code, review_feedback
-                    )
+                    generated_code = run_fixer_agent(file_name, file_spec, spec, generated_code, review_feedback)
 
-            # ===== Tester Phase =====
-            review_feedback = run_tester_agent(
-                file_name, file_spec, spec, generated_code
-            )
+            review_feedback = run_tester_agent(file_name, file_spec, spec, generated_code)
             print(f"[Tester Feedback] {file_name}: {review_feedback}")
 
-            if not review_feedback or review_feedback.strip().lower().startswith("approved"):
+            if not review_feedback or "approved" in review_feedback.lower():
                 success = True
                 final_outputs[file_name] = generated_code
                 print(f"[Pipeline] {file_name} approved on attempt {attempts}")
@@ -302,7 +285,6 @@ def run_agents_for_spec(spec: dict) -> dict:
 
             if is_hard_failure(review_feedback):
                 print(f"[Pipeline] Hard failure detected for {file_name}")
-                # don’t keep retrying infinitely if it's a real blocker
                 break
 
         if not success:
@@ -313,7 +295,6 @@ def run_agents_for_spec(spec: dict) -> dict:
             }
             print(f"[Pipeline] Failed to approve {file_name} after {attempts} attempts")
 
-    # Final response: include partial outputs if some files succeeded
     if failures:
         return {
             "status": "partial_failure",

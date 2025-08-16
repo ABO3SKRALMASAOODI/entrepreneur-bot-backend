@@ -33,16 +33,29 @@ user_sessions = {}
 
 # ===== Strict JSON Extractor =====
 def _extract_json_strict(text: str):
+    """
+    Extract the first valid JSON object from a string response.
+    Returns None if no valid JSON found.
+    """
     if not text:
         return None
+
     start = text.find("{")
     end = text.rfind("}")
-    if start == -1 or end == -1:
+    if start == -1 or end == -1 or start >= end:
         return None
+
+    candidate = text[start:end+1]
     try:
-        return json.loads(text[start:end+1])
+        return json.loads(candidate)
     except json.JSONDecodeError:
-        return None
+        # Try to clean trailing commas or bad escapes
+        cleaned = re.sub(r",\s*}", "}", candidate)
+        cleaned = re.sub(r",\s*]", "]", cleaned)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            return None
 
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
@@ -185,20 +198,20 @@ Produce STRICT JSON with every section fully populated.
 # ===== Constraint Enforcement =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
     """
-    Ensures universal constraints:
-    - Clarifications merged into description.
-    - Required universal files always exist.
-    - Agent blueprint populated for all files.
-    - Global reference index always populated.
+    Enforces universal orchestrator constraints:
+    - Merge clarifications into description.
+    - Ensure universal files exist.
+    - Populate agent_blueprint and global_reference_index.
+    - Validate contract structure.
     """
-    # Merge user clarifications
+    # --- Merge clarifications ---
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
     if clarifications not in spec.get("description", ""):
         spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Required universal files
+    # --- Required universal files ---
     required_files = [
         ("config.py", "Centralized configuration and constants"),
         ("requirements.txt", "Pinned dependencies for consistent environment"),
@@ -214,36 +227,36 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
                 "dependencies": []
             })
 
-    # Collect all file names
-    all_files = {f["file"] for f in spec.get("files", []) if "file" in f}
-    expanded_files = all_files  # one file per agent
+    # --- Validate contracts ---
+    if "contracts" not in spec:
+        raise ValueError("Spec missing 'contracts' section")
 
-    # Update agent blueprint
+    for section in ["entities", "apis", "functions", "protocols", "errors"]:
+        spec["contracts"].setdefault(section, [])
+
+    # --- Update agent blueprint ---
     spec["agent_blueprint"] = []
-    for file_name in sorted(expanded_files):
-        base_name = file_name.rsplit(".", 1)[0]
-        agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
+    for f in spec.get("files", []):
+        base = f["file"].rsplit(".", 1)[0]
+        agent_name = "".join(word.capitalize() for word in base.split("_")) + "Agent"
         spec["agent_blueprint"].append({
             "name": agent_name,
-            "description": f"Responsible for implementing {file_name} exactly as specified in the contracts."
+            "description": f"Responsible for implementing {f['file']} exactly as specified in the contracts."
         })
 
-    # === Ensure Global Reference Index ===
-    if not spec.get("global_reference_index"):
-        spec["global_reference_index"] = []
-
+    # --- Update global reference index ---
+    spec.setdefault("global_reference_index", [])
+    seen = {e["file"] for e in spec["global_reference_index"] if "file" in e}
     for f in spec.get("files", []):
-        entry = {
-            "file": f.get("file"),
-            "functions": [],
-            "classes": [],
-            "agents": []
-        }
-        if not any(e["file"] == entry["file"] for e in spec["global_reference_index"]):
-            spec["global_reference_index"].append(entry)
+        if f["file"] not in seen:
+            spec["global_reference_index"].append({
+                "file": f["file"],
+                "functions": [],
+                "classes": [],
+                "agents": []
+            })
 
     return spec
-
 
 
 # ===== Depth Booster =====
@@ -290,89 +303,103 @@ def boost_spec_depth(spec: dict) -> dict:
 
 
 # ===== Spec Generator =====
-def generate_spec(project: str, clarifications: str):
+def run_agents_for_spec(spec: dict) -> dict:
     """
-    Generates a fully detailed orchestrator spec for the given project and constraints.
-    Agents must output world-class, production-ready code.
-    Testers review one file at a time and provide ALL corrections if issues exist.
+    Orchestrator → Agents → Tester → Fixer pipeline with restructuring fallback.
+    Generates all required files for a project specification.
+    Ensures final code passes tester approval, imports, and integration tests.
     """
-    clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
-    clarifications_safe = json.dumps(clarifications_raw)[1:-1]
-    project_safe = json.dumps(project)[1:-1]
-    filled = SPEC_TEMPLATE.replace("{project}", project_safe).replace("{clarifications}", clarifications_safe).replace(
-        "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
-    )
 
-    try:
-        # === Generate initial spec with orchestrator ===
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # ⚡ legacy client call
-            temperature=0.25,
-            messages=[
-                {"role": "system", "content": SPEC_SYSTEM},
-                {"role": "user", "content": filled}
-            ]
-        )
-        raw = resp["choices"][0]["message"]["content"]
-        spec = _extract_json_strict(raw)
+    final_outputs = {}
+    failures = {}
 
-        # === Retry loop for JSON validity (3 attempts) ===
-        for attempt in range(3):
-            if spec:
+    candidate_files = get_agent_files(spec)
+
+    for file_name in candidate_files:
+        file_spec = extract_file_spec(spec, file_name)
+        print(f"[Pipeline] Starting generation for: {file_name}")
+
+        generated_code = None
+        success = False
+        attempts = 0
+        review_feedback = ""
+
+        while attempts < MAX_RETRIES and not success:
+            attempts += 1
+            print(f"[Pipeline] Attempt {attempts} for {file_name}")
+
+            # --- Generation Phase ---
+            if attempts == 1:
+                generated_code = run_generator_agent(file_name, file_spec, spec)
+            else:
+                if attempts >= 3 and review_feedback:
+                    print(f"[Pipeline] Escalating {file_name} to restructuring agent")
+                    generated_code = run_restructuring_agent(
+                        file_name, file_spec, spec, generated_code, review_feedback
+                    )
+                else:
+                    generated_code = run_fixer_agent(
+                        file_name, file_spec, spec, generated_code, review_feedback
+                    )
+
+            if not generated_code:
+                review_feedback = "❌ No code generated"
                 break
-            retry_prompt = (
-                f"Attempt {attempt+1}: The previous output was not valid JSON. "
-                "Output the SAME specification again as STRICT JSON only, no commentary, no markdown."
-            )
-            resp = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                temperature=0.25,
-                messages=[
-                    {"role": "system", "content": SPEC_SYSTEM},
-                    {"role": "user", "content": retry_prompt}
-                ]
-            )
-            raw = resp["choices"][0]["message"]["content"]
-            spec = _extract_json_strict(raw)
 
-        if not spec:
-            raise ValueError("❌ Failed to parse JSON spec after 3 retries")
+            # --- Tester Phase ---
+            review_feedback = run_tester_agent(file_name, file_spec, spec, generated_code)
+            print(f"[Tester Feedback] {file_name}: {review_feedback}")
 
-        # === Enforce depth and constraints ===
-        spec = boost_spec_depth(spec)
-        spec = enforce_constraints(spec, clarifications_raw)
+            if (
+                not review_feedback
+                or "approved" in review_feedback.lower()
+                or "✅" in review_feedback
+            ):
+                success = True
+                final_outputs[file_name] = {"file": file_name, "code": generated_code}
+                print(f"[Pipeline] {file_name} approved on attempt {attempts}")
+                break
 
-        # === Define agent & tester roles ===
-        spec["_agent_role_prefix"] = {
-            "generator": (
-                "You are the **world’s most elite coding agent**. "
-                "Deliver FINAL, PRODUCTION-READY code in one pass. "
-                "Follow the spec exactly, resolve every requirement, "
-                "and guarantee compatibility with all other files."
-            ),
-            "tester": (
-                "You are a **file-specific practical reviewer**. "
-                "You ONLY review the file given to you — not others.\n\n"
-                "Rules:\n"
-                "1. Approve ONLY if the file is flawless and production-ready.\n"
-                "2. If issues exist, list **ALL problems in this file at once**, with exact corrections.\n"
-                "   Example:\n"
-                "   ❌ Issues in `user_service.py`:\n"
-                "   - Missing import: add `from typing import List`.\n"
-                "   - Function `get_user` missing return type annotation.\n"
-                "   - Variable `db` is used but never defined.\n"
-                "3. Never stop at the first error — always surface *every* issue.\n"
-                "4. If no issues: output ONLY ✅ APPROVED."
-            )
+            if is_hard_failure(review_feedback):
+                print(f"[Pipeline] Hard failure detected for {file_name}")
+                break
+
+        if not success:
+            failures[file_name] = {
+                "attempts": attempts,
+                "last_feedback": review_feedback,
+                "last_code": generated_code,
+            }
+            print(f"[Pipeline] Failed to approve {file_name} after {attempts} attempts")
+
+    # === Final verification step ===
+    if final_outputs:
+        try:
+            outputs_as_dicts = list(final_outputs.values())
+            verify_imports(outputs_as_dicts)
+            verify_tests(outputs_as_dicts, spec)
+        except Exception as e:
+            return {
+                "status": "tests_failed",
+                "approved_files": final_outputs,
+                "failed_files": failures,
+                "message": f"Verification failed: {e}",
+            }
+
+    # === Response ===
+    if failures:
+        return {
+            "status": "partial_failure",
+            "approved_files": final_outputs,
+            "failed_files": failures,
+            "message": "Some files could not be approved even after retries",
         }
-
-        # === Save state ===
-        project_state[project] = spec
-        save_state(project_state)
-        return spec
-
-    except Exception as e:
-        raise RuntimeError(f"OpenAI API error: {e}")
+    else:
+        return {
+            "status": "success",
+            "approved_files": final_outputs,
+            "message": "All files successfully generated, tested, and approved",
+        }
 
 
 # ===== Orchestrator Route =====
