@@ -33,7 +33,7 @@ ml-dtypes==0.2.0
 multidict==6.4.3
 numpy==1.26.3
 oauthlib==3.2.2
-openai>=1.50.0
+openai==0.28.0
 opt-einsum==3.3.0
 packaging==23.2
 propcache==0.3.1
