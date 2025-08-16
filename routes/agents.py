@@ -35,27 +35,26 @@ user_sessions = {}
 def _extract_json_strict(text: str):
     """
     Extract the first valid JSON object from a string response.
-    Returns None if no valid JSON found.
+    Always returns a dict (possibly empty).
     """
     if not text:
-        return None
+        return {}
 
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or start >= end:
-        return None
+        return {}
 
     candidate = text[start:end+1]
     try:
         return json.loads(candidate)
     except json.JSONDecodeError:
-        # Try to clean trailing commas or bad escapes
         cleaned = re.sub(r",\s*}", "}", candidate)
         cleaned = re.sub(r",\s*]", "]", cleaned)
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            return None
+            return {}
 
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
@@ -303,77 +302,102 @@ def boost_spec_depth(spec: dict) -> dict:
 
 
 # ===== Spec Generator =====
-def generate_spec(project: str, clarifications: str):
+def generate_spec(project: str, clarifications: str = "") -> dict:
     """
-    Generates a complete orchestrator spec, validates it,
-    enforces constraints, and boosts depth for agents.
+    Calls OpenAI to generate a project specification and ensures it's returned as a dict.
     """
-    clarifications_raw = clarifications.strip() or "no specific constraints provided"
-    clarifications_safe = json.dumps(clarifications_raw)[1:-1]
-    project_safe = json.dumps(project)[1:-1]
+    prompt = f"""
+    You are the orchestrator agent. Generate a JSON specification for the project.
+    Project: {project}
+    Clarifications: {clarifications}
 
-    filled = SPEC_TEMPLATE.replace("{project}", project_safe)\
-                          .replace("{clarifications}", clarifications_safe)\
-                          .replace("<ISO timestamp>", datetime.utcnow().isoformat() + "Z")
+    Requirements:
+    - Respond ONLY with a strict JSON object.
+    - Include keys: interface_stub_files, agent_blueprint, function_contract_manifest.
+    - Do not include explanations outside the JSON.
+    """
 
     try:
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
-            temperature=0.25,
+            temperature=0,
             messages=[
-                {"role": "system", "content": SPEC_SYSTEM},
-                {"role": "user", "content": filled}
-            ]
+                {"role": "system", "content": "You are a JSON-only spec generator."},
+                {"role": "user", "content": prompt},
+            ],
         )
-        raw = resp.choices[0].message.content
-        spec = _extract_json_strict(raw)
-
-        # Retry loop in case JSON was malformed
-        for attempt in range(3):
-            if spec:
-                break
-            retry_prompt = (
-                f"Attempt {attempt+1}: Previous output invalid. "
-                "Output STRICT JSON only, no comments or markdown."
-            )
-            resp = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                temperature=0.25,
-                messages=[
-                    {"role": "system", "content": SPEC_SYSTEM},
-                    {"role": "user", "content": retry_prompt}
-                ]
-            )
-            raw = resp.choices[0].message.content
-            spec = _extract_json_strict(raw)
-
-        if not spec:
-            raise ValueError("❌ Failed to parse JSON spec after 3 retries")
-
-        # --- Validate + enforce universal constraints ---
-        spec = enforce_constraints(spec, clarifications_raw)
-        spec = boost_spec_depth(spec)
-
-        # --- Define agent/tester roles ---
-        spec["_agent_role_prefix"] = {
-            "generator": (
-                "You are the world’s most elite coding agent. "
-                "Deliver FINAL, PRODUCTION-READY code in one pass. "
-                "Follow the spec exactly and guarantee compatibility."
-            ),
-            "tester": (
-                "You are a file-specific reviewer. "
-                "List ALL blocking issues in a file. Approve only if flawless."
-            )
-        }
-
-        # Save state
-        project_state[project] = spec
-        save_state(project_state)
-        return spec
-
+        raw = resp.choices[0].message.content.strip()
     except Exception as e:
-        raise RuntimeError(f"OpenAI API error: {e}")
+        raise RuntimeError(f"❌ OpenAI API error in generate_spec: {e}")
+
+    # Strict JSON extraction
+    spec = _extract_json_strict(raw)
+
+    # Guarantee dict return
+    if isinstance(spec, str):
+        try:
+            spec = json.loads(spec)
+        except Exception:
+            raise ValueError("❌ Failed to parse spec: returned a string instead of JSON")
+
+    if not isinstance(spec, dict):
+        raise ValueError("❌ Failed to generate valid project spec (not a dict)")
+
+    return spec
+# ===== Spec Normalizer =====
+def normalize_spec(spec: dict) -> dict:
+    """
+    Normalize OpenAI-generated spec into the structure expected by downstream agents.
+    Ensures 'contracts' and 'files' keys always exist, and maps legacy keys.
+    """
+    if not isinstance(spec, dict):
+        raise ValueError("normalize_spec expected a dict")
+
+    # Ensure contracts section exists
+    spec.setdefault("contracts", {
+        "entities": [],
+        "apis": [],
+        "functions": [],
+        "protocols": [],
+        "errors": []
+    })
+
+    # Map function_contract_manifest → contracts.functions
+    if "function_contract_manifest" in spec:
+        manifest = spec.get("function_contract_manifest", {})
+        if isinstance(manifest, dict):
+            funcs = manifest.get("functions", [])
+            if funcs and isinstance(funcs, list):
+                spec["contracts"].setdefault("functions", [])
+                spec["contracts"]["functions"].extend(funcs)
+
+    # Map interface_stub_files → files
+    if "interface_stub_files" in spec:
+        stubs = spec.get("interface_stub_files", [])
+        if isinstance(stubs, list):
+            spec.setdefault("files", [])
+            for stub in stubs:
+                if isinstance(stub, dict) and "file" in stub:
+                    fname = stub["file"]
+                    if fname and not any(f.get("file") == fname for f in spec["files"]):
+                        spec["files"].append({
+                            "file": fname,
+                            "language": "python",
+                            "description": "Generated interface stub",
+                            "implements": [],
+                            "dependencies": []
+                        })
+                elif isinstance(stub, str):
+                    if stub and not any(f.get("file") == stub for f in spec["files"]):
+                        spec["files"].append({
+                            "file": stub,
+                            "language": "python",
+                            "description": "Generated interface stub",
+                            "implements": [],
+                            "dependencies": []
+                        })
+
+    return spec
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
@@ -407,7 +431,9 @@ def orchestrator():
         session["stage"] = "done"
         try:
             spec = generate_spec(session["project"], session["clarifications"])
+            spec = normalize_spec(spec)  # <-- NEW line
             agent_outputs = run_agents_for_spec(spec)
+
             return jsonify({
                 "role": "assistant",
                 "status": "FULLY VERIFIED",
