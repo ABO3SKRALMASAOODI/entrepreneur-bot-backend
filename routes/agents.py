@@ -339,23 +339,26 @@ def generate_spec(project: str, clarifications: str):
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
     try:
-       resp = openai.ChatCompletion.create(
-        model="gpt-5",          # 🚀 richest brain
-        temperature=0.25,       # enough richness to expand, still deterministic
-        messages=[
+       resp = openai.chat.completions.create(
+    model="gpt-5",
+    temperature=0.25,
+    messages=[
         {"role": "system", "content": SPEC_SYSTEM},
         {"role": "user", "content": filled}
     ],
-)
+    )
+
+
 
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
-    raw = resp.choices[0].message["content"]
-    spec = _extract_json_strict(raw)
+        raw = resp.choices[0].message["content"]
+        spec = _extract_json_strict(raw)
     if not spec:
         retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini", temperature=0.05,
+        resp = openai.chat.completions.create(
+            model="gpt-5",
+            temperature=0.25,
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": retry_prompt}
@@ -363,6 +366,7 @@ def generate_spec(project: str, clarifications: str):
         )
         raw = resp.choices[0].message["content"]
         spec = _extract_json_strict(raw)
+
     if not spec:
         raise ValueError("❌ Failed to parse JSON spec after retry")
 
