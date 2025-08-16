@@ -33,16 +33,30 @@ user_sessions = {}
 
 # ===== Strict JSON Extractor =====
 def _extract_json_strict(text: str):
+    """
+    Extract the first valid JSON object from a string response.
+    Always returns a dict if successful, otherwise raises ValueError.
+    """
     if not text:
         return None
+
     start = text.find("{")
     end = text.rfind("}")
+
     if start == -1 or end == -1:
         return None
+
     try:
-        return json.loads(text[start:end+1])
-    except json.JSONDecodeError:
-        return None
+        parsed = json.loads(text[start:end+1])
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Expected dict but got {type(parsed)}: {parsed}")
+        return parsed
+    except Exception as e:
+        raise ValueError(
+            f"❌ Failed to parse JSON from model output: {e}\n"
+            f"--- RAW TEXT START ---\n{text[:500]}\n--- RAW TEXT END ---"
+        )
+
 
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
@@ -358,8 +372,11 @@ def generate_spec(project: str, clarifications: str):
         spec = _extract_json_strict(raw)
 
         # === Retry once if JSON invalid ===
-        if not spec:
-            retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
+        if not isinstance(spec, dict):
+            retry_prompt = (
+                "The previous output was not valid JSON. "
+                "Output the exact same specification again as STRICT JSON only."
+            )
             resp = openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 temperature=0.25,
@@ -371,8 +388,9 @@ def generate_spec(project: str, clarifications: str):
             raw = resp["choices"][0]["message"]["content"]
             spec = _extract_json_strict(raw)
 
-        if not spec:
-            raise ValueError("❌ Failed to parse JSON spec after retry")
+        # ✅ Final validation
+        if not isinstance(spec, dict):
+            raise ValueError(f"Spec is not a dict. Got {type(spec)} → {spec}")
 
         # === Enforce depth and constraints ===
         spec = boost_spec_depth(spec)
@@ -409,7 +427,6 @@ def generate_spec(project: str, clarifications: str):
 
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
-
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
