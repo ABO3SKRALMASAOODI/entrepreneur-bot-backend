@@ -338,58 +338,61 @@ def generate_spec(project: str, clarifications: str):
     filled = SPEC_TEMPLATE.replace("{project}", project_safe).replace("{clarifications}", clarifications_safe).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
+
     try:
-       resp = openai.chat.completions.create(
-    model="gpt-5",
-    temperature=0.25,
-    messages=[
-        {"role": "system", "content": SPEC_SYSTEM},
-        {"role": "user", "content": filled}
-    ],
-    )
+        resp = openai.chat.completions.create(
+            model="gpt-5",
+            messages=[
+                {"role": "system", "content": SPEC_SYSTEM},
+                {"role": "user", "content": filled}
+            ],
+            reasoning_effort="high",
+            verbosity="high"
+        )
+        raw = resp.choices[0].message["content"]
+        spec = _extract_json_strict(raw)
 
+        # retry once if JSON invalid
+        if not spec:
+            retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
+            resp = openai.chat.completions.create(
+                model="gpt-5",
+                messages=[
+                    {"role": "system", "content": SPEC_SYSTEM},
+                    {"role": "user", "content": retry_prompt}
+                ],
+                reasoning_effort="medium",   # lighter retry
+                verbosity="low"
+            )
+            raw = resp.choices[0].message["content"]
+            spec = _extract_json_strict(raw)
 
+        if not spec:
+            raise ValueError("❌ Failed to parse JSON spec after retry")
+
+        spec = boost_spec_depth(spec)
+        spec = enforce_constraints(spec, clarifications_raw)
+
+        # 🚀 Enhanced role prefixes
+        spec["_agent_role_prefix"] = {
+            "generator": (
+                "You are the **world’s most elite coding agent**. "
+                "Your mission: deliver FINAL, PRODUCTION-READY code in one pass, "
+                "addressing every requirement from the spec and every tester feedback point in one go."
+            ),
+            "tester": (
+                "You are the **strictest software reviewer alive**. "
+                "Your mission: review code and list ALL violations in one single review. "
+                "Approve only if flawless — output ONLY '✅ APPROVED' if perfect."
+            )
+        }
+
+        project_state[project] = spec
+        save_state(project_state)
+        return spec
 
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
-        raw = resp.choices[0].message["content"]
-        spec = _extract_json_strict(raw)
-    if not spec:
-        retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
-        resp = openai.chat.completions.create(
-            model="gpt-5",
-            temperature=0.25,
-            messages=[
-                {"role": "system", "content": SPEC_SYSTEM},
-                {"role": "user", "content": retry_prompt}
-            ],
-        )
-        raw = resp.choices[0].message["content"]
-        spec = _extract_json_strict(raw)
-
-    if not spec:
-        raise ValueError("❌ Failed to parse JSON spec after retry")
-
-    spec = boost_spec_depth(spec)
-    spec = enforce_constraints(spec, clarifications_raw)
-
-    # 🚀 Enhanced role prefixes
-    spec["_agent_role_prefix"] = {
-        "generator": (
-            "You are the **world’s most elite coding agent**. "
-            "Your mission: deliver FINAL, PRODUCTION-READY code in one pass, "
-            "addressing every requirement from the spec and every tester feedback point in one go."
-        ),
-        "tester": (
-            "You are the **strictest software reviewer alive**. "
-            "Your mission: review code and list ALL violations in one single review. "
-            "Approve only if flawless — output ONLY '✅ APPROVED' if perfect."
-        )
-    }
-
-    project_state[project] = spec
-    save_state(project_state)
-    return spec
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
