@@ -44,7 +44,7 @@ def _extract_json_strict(text: str):
     except json.JSONDecodeError:
         return None
 
-# ===== Core Shared Schemas =====
+# ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
 from dataclasses import dataclass
 from enum import Enum
@@ -59,7 +59,6 @@ class ErrorCode(str, Enum):
     VALIDATION_ERROR = "validation_error"
     NOT_FOUND = "not_found"
     INTERNAL_ERROR = "internal_error"
-    COMPATIBILITY_ERROR = "compatibility_error"
 
 @dataclass
 class Entity:
@@ -81,74 +80,129 @@ class ServiceRequest:
 
 CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
-# ===== Orchestrator System Prompt =====
+# ===== Universal Orchestrator Instructions =====
 SPEC_SYSTEM = (
-    "You are the **most advanced universal multi-agent orchestrator in existence**. "
-    "Your job: produce a COMPLETE, COMPATIBLE, ZERO-AMBIGUITY project specification "
-    "that allows 100+ independent agents to generate code that runs perfectly together.\n"
-    "--- ABSOLUTE RULES ---\n"
-    "1. ALL output must be FINAL, COMPLETE, and STRICT JSON (no markdown).\n"
-    "2. FULLY incorporate ALL user constraints and clarify ambiguous inputs.\n"
-    "3. EVERY function: define inputs, outputs, steps, edge cases, and errors.\n"
-    "4. EVERY data structure: define field names, types, nullability, defaults, constraints.\n"
-    "5. Centralize ALL constants, env vars, routes in config.py / constants.py / api_endpoints.py.\n"
-    "6. NO circular imports — all shared items in core_shared_schemas.py.\n"
-    "7. Define explicit inter-agent protocols with request/response formats and error handling.\n"
-    "8. Global Reference Index: list EVERY file, class, agent, and function.\n"
-    "9. Provide integration test scaffolding that ensures cross-agent compatibility.\n"
-    "10. Ensure deterministic ordering of execution, imports, and protocols.\n"
-    "11. All nullable fields → Optional[T] with explicit default values.\n"
-    "12. Pin dependency versions in requirements.txt.\n"
-    "13. NO placeholders — every section must be richly filled.\n"
-    "14. Guarantee that when all agents generate their files, the project runs END-TO-END with ZERO FIXES.\n"
+    "You are the most advanced universal multi-agent project orchestrator in existence. "
+    "Your output must be FINAL, COMPLETE, and ZERO-AMBIGUITY so that 100+ independent coding agents "
+    "can implement their files in isolation and when combined, the system runs flawlessly without manual fixes.\n"
+    "--- UNIVERSAL COMPATIBILITY RULES ---\n"
+    "1. Fully incorporate ALL user requirements into every relevant section.\n"
+    "2. For EVERY function, provide: purpose, exact input/output types, preconditions, postconditions, possible errors, side effects.\n"
+    "3. For EVERY function, also provide 'steps' — explicit, numbered pseudocode that leaves no ambiguity.\n"
+    "4. Define ALL data structures with exact field names, types, nullability, default values, constraints.\n"
+    "5. All constants, enums, config keys, environment variables, base URLs, and endpoint routes must be centralized in config.py or constants.py — no hardcoding.\n"
+    "6. All API endpoint paths must be centralized in api_endpoints.py.\n"
+    "7. Inter-agent protocols must have step-by-step flow sequences, including success/failure handling.\n"
+    "8. Dependency graph must avoid circular imports — all shared imports come from shared_schemas.\n"
+    "9. Test cases must validate: data integrity, protocol compliance, cross-agent integration, and ordering.\n"
+    "10. Scale to 100–200 agents by splitting into smallest coherent responsibilities.\n"
+    "11. Use strict naming conventions (snake_case for functions, PascalCase for classes, UPPER_SNAKE_CASE for constants).\n"
+    "12. Every collection must define sort key and order.\n"
+    "13. requirements.txt must have pinned versions.\n"
+    "14. All nullable fields must be Optional with explicit defaults.\n"
+    "15. Populate EVERY section — never leave {} or [].\n"
+    "16. Output strictly valid JSON — no markdown, no comments.\n"
+    "17. Include a Global Reference Index for all files, functions, agents, and classes.\n"
+    "18. Include an Error Decision Table mapping codes → conditions → HTTP status.\n"
+    "19. Include example inputs/outputs for ALL APIs and major functions.\n"
 )
 
 # ===== Spec Template =====
-SPEC_TEMPLATE = """{
-  "version": "13.0",
+SPEC_TEMPLATE = """ Project: {project} Preferences/Requirements: {clarifications}
+Produce STRICT JSON with every section fully populated.
+{
+  "version": "12.0",
   "generated_at": "<ISO timestamp>",
-  "project": "{project}",
-  "description": "Project generated with full compatibility. User constraints: {clarifications}",
-  "project_type": "<auto-detected>",
-  "target_users": ["<user groups>"],
+  "project": "<short name>",
+  "description": "<comprehensive summary including: {clarifications}>",
+  "project_type": "<auto-detected type>",
+  "target_users": ["<primary user groups>"],
   "tech_stack": {
-    "language": "<lang>",
-    "framework": "<framework>",
-    "database": "<db>"
+    "language": "<main language>",
+    "framework": "<main framework>",
+    "database": "<db if any>"
   },
   "global_naming_contract": {
-    "agent_prefix": "Agent",
+    "agent_prefix": "<prefix>",
     "entity_suffix": "_entity",
     "service_suffix": "_service",
     "protocol_suffix": "_protocol",
     "test_suffix": "_test"
   },
+  "data_dictionary": [
+    {"name": "<field>", "type": "<type>", "description": "<meaning>", "nullable": "<true/false>", "default": "<value or null>"}
+  ],
   "shared_schemas": {shared_schemas},
-  "error_module": {
-    "errors": [
-      {"code": "VALIDATION_ERROR", "http": 400},
-      {"code": "NOT_FOUND", "http": 404},
-      {"code": "INTERNAL_ERROR", "http": 500},
-      {"code": "COMPATIBILITY_ERROR", "http": 422}
+  "protocol_schemas": "<Detailed schemas for all inter-agent messages with versioning, format, and example payloads>",
+  "errors_module": "<Custom exceptions + Error Decision Table mapping error codes to conditions and HTTP statuses>",
+  "function_contract_manifest": {
+    "functions": [
+      {
+        "file": "<filename>",
+        "name": "<func_name>",
+        "description": "<what it does>",
+        "params": {"<param>": "<type>"},
+        "return_type": "<type>",
+        "errors": ["<error_code>"],
+        "steps": [
+          "Step 1: ...",
+          "Step 2: ...",
+          "Step 3: ..."
+        ],
+        "example_input": { "example_field": "value" },
+        "example_output": { "example_field": "value" }
+      }
     ]
   },
-  "function_contract_manifest": {
-    "functions": []
-  },
   "interface_stub_files": [
-    {"file": "config.py", "description": "Centralized configuration"},
-    {"file": "api_endpoints.py", "description": "Centralized API endpoints"},
-    {"file": "requirements.txt", "description": "Pinned dependencies"},
-    {"file": "core_shared_schemas.py", "description": "Universal schemas"}
+    {"file": "config.py", "description": "Centralized configuration and constants"},
+    {"file": "api_endpoints.py", "description": "Centralized API endpoint paths"},
+    {"file": "requirements.txt", "description": "Pinned dependencies for consistent environment"}
   ],
-  "agent_blueprint": [],
-  "inter_agent_protocols": [],
-  "global_reference_index": [],
+  "agent_blueprint": [
+    {"name": "<AgentName>", "description": "<Role in system implementing: {clarifications}>"}
+  ],
+  "api_contracts": [
+    {
+      "endpoint": "<url>",
+      "method": "<HTTP method>",
+      "request_schema": "<schema>",
+      "response_schema": "<schema>",
+      "example_request": { "example_field": "value" },
+      "example_response": { "example_field": "value" }
+    }
+  ],
+  "db_schema": [
+    {
+      "table": "<table>",
+      "columns": [
+        {"name": "<col>", "type": "<type>", "constraints": "<constraints>", "nullable": "<true/false>", "default": "<value or null>"}
+      ]
+    }
+  ],
+  "domain_specific": {"user_constraints": "{clarifications}"},
+  "inter_agent_protocols": [
+    {"protocol": "<name>", "description": "<flow with steps and failure handling>"}
+  ],
+  "dependency_graph": [
+    {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}
+  ],
+  "execution_plan": [
+    {"step": 1, "description": "<implementation step>"}
+  ],
+  "global_reference_index": [
+    {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]}
+  ],
   "integration_tests": [
-    {"path": "test_compatibility.py", "code": "# Assert all agents can import each other without error"},
-    {"path": "test_end_to_end.py", "code": "# Validate main user journey end-to-end"}
+    {"path": "test_schema_hash.py", "code": "import hashlib; assert hashlib.sha256(open('core_shared_schemas.py').read().encode()).hexdigest() == '{core_hash}'"},
+    {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip serialization/deserialization"},
+    {"path": "test_end_to_end.py", "code": "# Verify main user journey across agents passes"}
+  ],
+  "test_cases": [
+    {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}
   ]
-}""".replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS))
+}
+""".replace("{shared_schemas}", json.dumps(CORE_SHARED_SCHEMAS)).replace("{core_hash}", CORE_SCHEMA_HASH)
 
 # ===== Complexity Estimator =====
 def estimate_complexity(spec: Dict[str, Any]) -> int:
@@ -158,65 +212,207 @@ def estimate_complexity(spec: Dict[str, Any]) -> int:
     protocols = len(spec.get("inter_agent_protocols", []))
     score = (endpoints * 2) + (db_tables * 3) + (functions * 1.5) + (protocols * 2)
     return max(5, int(score))
+# ===== File Splitting =====
+def split_large_modules(base_file: str, est_loc: int, max_loc: int = 1200) -> list:
+    skip_split_keywords = ["config", "constants", "shared", "schemas", "api_endpoints", "requirements", "test"]
+    if any(k in base_file.lower() for k in skip_split_keywords) and est_loc <= 2500:
+        return [base_file]
+    if est_loc <= max_loc:
+        return [base_file]
+    num_parts = (est_loc // max_loc) + 1
+    return [f"{base_file.rsplit('.', 1)[0]}_part{i+1}.py" for i in range(num_parts)]
 
-# ===== Compatibility Enforcer =====
-def enforce_compatibility(spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Guarantees cross-agent compatibility by enforcing shared imports and reference consistency."""
-    # Inject schema hash everywhere
-    spec["schema_hash"] = CORE_SCHEMA_HASH
+# ===== Constraint Enforcement =====
+def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
+    if clarifications.strip():
+        spec.setdefault("domain_specific", {})
+        spec["domain_specific"]["user_constraints"] = clarifications
+    if clarifications not in spec.get("description", ""):
+        spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
 
-    # Add agent roles for deterministic compatibility
-    for agent in spec.get("agent_blueprint", []):
-        agent["compatibility"] = "MUST import from core_shared_schemas.py ONLY"
-        agent["naming_contract"] = spec.get("global_naming_contract", {})
+    required_files = [
+        ("config.py", "Centralized configuration and constants"),
+        ("api_endpoints.py", "Centralized API endpoint paths"),
+        ("requirements.txt", "Pinned dependencies for consistent environment"),
+        ("core_shared_schemas.py", "Universal shared schemas for all agents"),
+    ]
+    for fname, desc in required_files:
+        if not any(f.get("file") == fname for f in spec.get("interface_stub_files", [])):
+            spec.setdefault("interface_stub_files", []).append({"file": fname, "description": desc})
+
+    all_files = set()
+    for f in spec.get("interface_stub_files", []):
+        all_files.add(f["file"])
+    for dep in spec.get("dependency_graph", []):
+        if "file" in dep:
+            all_files.add(dep["file"])
+        for d in dep.get("dependencies", []):
+            all_files.add(d)
+    for ref in spec.get("global_reference_index", []):
+        if "file" in ref:
+            all_files.add(ref["file"])
+    for func in spec.get("function_contract_manifest", {}).get("functions", []):
+        if "file" in func:
+            all_files.add(func["file"])
+
+    complexity_score = min(estimate_complexity(spec), 12)
+    expanded_files = set()
+    for file_name in all_files:
+        if "service" in file_name:
+            est_loc = 400
+        elif "test" in file_name:
+            est_loc = 150
+        elif "app" in file_name or "main" in file_name:
+            est_loc = 600
+        else:
+            est_loc = 120
+        est_loc *= min(complexity_score / 5, 2.0)
+        expanded_files.update(split_large_modules(file_name, int(est_loc)))
+
+    spec["agent_blueprint"] = []
+    for file_name in sorted(expanded_files):
+        base_name = file_name.rsplit(".", 1)[0]
+        agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
+        spec["agent_blueprint"].append({
+            "name": agent_name,
+            "description": f"Responsible for implementing {file_name} exactly as specified in the spec."
+        })
 
     return spec
 
-# ===== Depth Booster =====
 def boost_spec_depth(spec: dict) -> dict:
+    """
+    Expands the orchestrator spec with deep, rich, and highly detailed implementation
+    instructions for every file in the project. This guarantees agents receive
+    enough content to generate world-class, long, and compatible code.
+    """
     if "__depth_boost" not in spec:
         spec["__depth_boost"] = {}
-    for file in [a.get("file") for a in spec.get("interface_stub_files", []) if "file" in a]:
-        spec["__depth_boost"][file] = {
-            "notes": [
-                f"Implement {file} to production standard.",
-                "Follow SOLID principles, full typing, modular structure.",
-                "Ensure all imports reference shared schemas.",
-                "Include integration hooks for APIs/DB/protocols.",
-                "Write full docstrings, logging, error handling."
-            ]
-        }
+
+    all_files = set()
+
+    # Gather all file names from various spec sections
+    for section in ["interface_stub_files", "agent_blueprint", "function_contract_manifest",
+                    "dependency_graph", "global_reference_index"]:
+        entries = spec.get(section, [])
+        if isinstance(entries, dict):
+            entries = entries.get("functions", []) if section == "function_contract_manifest" else []
+        for item in entries:
+            if isinstance(item, dict) and "file" in item:
+                all_files.add(item["file"])
+            elif isinstance(item, str):
+                all_files.add(item)
+
+    # Populate detailed depth boost for each file
+    for file_name in all_files:
+        spec["__depth_boost"].setdefault(file_name, {})
+
+        # Example deep pseudocode and considerations
+        spec["__depth_boost"][file_name]["notes"] = [
+            f"Implement {file_name} with production-grade standards.",
+            "Follow SOLID principles, modular structure, and type hints everywhere.",
+            "Include full error handling, retries, and failover logic where applicable.",
+            "Add comprehensive logging at INFO and ERROR levels.",
+            "Ensure security best practices: sanitize inputs, prevent injection attacks, handle secrets properly.",
+            "Design for high performance: avoid unnecessary loops, use efficient algorithms and data structures.",
+            "Write functions to be unit-testable and deterministic.",
+            "Include integration points for APIs, DB, and inter-agent protocols exactly as per spec.",
+            "Document every public method and class with docstrings explaining usage and edge cases.",
+            "Follow consistent naming and structure to guarantee compatibility with other generated files."
+        ]
+
+        # Optional expanded DB/API/protocols (could pull from spec if relevant)
+        spec["__depth_boost"][file_name]["db"] = spec.get("db_schema", [])
+        spec["__depth_boost"][file_name]["api"] = spec.get("api_contracts", [])
+        spec["__depth_boost"][file_name]["protocols"] = spec.get("inter_agent_protocols", [])
+
     return spec
+
+
+
+# ===== Spec Generator =====
+from openai import OpenAI
+client = OpenAI()
 
 # ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
-    clarifications_safe = clarifications.strip() or "no constraints provided"
-    filled = SPEC_TEMPLATE.replace("{project}", project).replace("{clarifications}", clarifications_safe).replace(
+    """
+    Generates a fully detailed orchestrator spec for the given project and constraints.
+    Agents must output world-class, production-ready code.
+    Testers review one file at a time and provide ALL corrections if issues exist.
+    """
+    clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
+    clarifications_safe = json.dumps(clarifications_raw)[1:-1]
+    project_safe = json.dumps(project)[1:-1]
+    filled = SPEC_TEMPLATE.replace("{project}", project_safe).replace("{clarifications}", clarifications_safe).replace(
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
 
     try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini", temperature=0.05,
+        # === Generate initial spec with orchestrator ===
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",  # ⚡ switched back to 4o-mini as you asked
+            temperature=0.25,
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": filled}
             ]
         )
+        raw = resp.choices[0].message.content
+        spec = _extract_json_strict(raw)
+
+        # === Retry once if JSON invalid ===
+        if not spec:
+            retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                temperature=0.25,
+                messages=[
+                    {"role": "system", "content": SPEC_SYSTEM},
+                    {"role": "user", "content": retry_prompt}
+                ]
+            )
+            raw = resp.choices[0].message.content
+            spec = _extract_json_strict(raw)
+
+        if not spec:
+            raise ValueError("❌ Failed to parse JSON spec after retry")
+
+        # === Enforce depth and constraints ===
+        spec = boost_spec_depth(spec)
+        spec = enforce_constraints(spec, clarifications_raw)
+
+        # === Define agent & tester roles ===
+        spec["_agent_role_prefix"] = {
+            "generator": (
+                "You are the **world’s most elite coding agent**. "
+                "Deliver FINAL, PRODUCTION-READY code in one pass. "
+                "Follow the spec exactly, resolve every requirement, "
+                "and guarantee compatibility with all other files."
+            ),
+            "tester": (
+                "You are a **file-specific practical reviewer**. "
+                "You ONLY review the file given to you — not others.\n\n"
+                "Rules:\n"
+                "1. Approve ONLY if the file is flawless and production-ready.\n"
+                "2. If issues exist, list **ALL problems in this file at once**, with exact corrections.\n"
+                "   Example:\n"
+                "   ❌ Issues in `user_service.py`:\n"
+                "   - Missing import: add `from typing import List`.\n"
+                "   - Function `get_user` missing return type annotation.\n"
+                "   - Variable `db` is used but never defined.\n"
+                "3. Never stop at the first error — always surface *every* issue.\n"
+                "4. If no issues: output ONLY ✅ APPROVED."
+            )
+        }
+
+        # === Save state ===
+        project_state[project] = spec
+        save_state(project_state)
+        return spec
+
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
-
-    raw = resp.choices[0].message["content"]
-    spec = _extract_json_strict(raw)
-    if not spec:
-        raise ValueError("❌ Failed to parse JSON spec")
-
-    spec = enforce_compatibility(spec)
-    spec = boost_spec_depth(spec)
-
-    project_state[project] = spec
-    save_state(project_state)
-    return spec
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
@@ -231,7 +427,7 @@ def orchestrator():
     clarifications = body.get("clarifications", "").strip()
 
     if user_id not in user_sessions:
-        user_sessions[user_id] = {"stage": "project"}
+        user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
 
     session = user_sessions[user_id]
 
@@ -240,21 +436,25 @@ def orchestrator():
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
         session["project"] = project
         session["stage"] = "clarifications"
-        return jsonify({"role": "assistant", "content": "Any preferences or constraints? (Optional)"})
+        return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
 
     if session["stage"] == "clarifications":
-        session["clarifications"] = clarifications or project
+        incoming_constraints = clarifications or project
+        if incoming_constraints.strip():
+            session["clarifications"] = incoming_constraints.strip()
+
         session["stage"] = "done"
         try:
             spec = generate_spec(session["project"], session["clarifications"])
             agent_outputs = run_agents_for_spec(spec)
             return jsonify({
                 "role": "assistant",
-                "status": "✅ FULLY COMPATIBLE SPEC",
+                "status": "FULLY VERIFIED",
                 "spec": spec,
                 "agents_output": agent_outputs
             })
         except Exception as e:
-            return jsonify({"role": "assistant", "content": f"❌ Failed: {e}"}), 500
+            return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
+    user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
