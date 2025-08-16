@@ -182,16 +182,20 @@ FILE-SPEC:
 {feedback_note}
 """
 
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        request_timeout=60,  # prevent hangs
-        messages=[
-            {"role": "system", "content": "You are a perfectionist coding agent focused on correctness and compatibility."},
-            {"role": "user", "content": agent_prompt}
-        ]
-    )
-    return resp.choices[0].message["content"]
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",       # you can swap to "gpt-5" if preferred
+            temperature=0,
+            request_timeout=60,
+            messages=[
+                {"role": "system", "content": "You are a perfectionist coding agent focused on correctness and compatibility."},
+                {"role": "user", "content": agent_prompt}
+            ]
+        )
+        # ✅ safer access (property instead of dict)
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
 
 
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
