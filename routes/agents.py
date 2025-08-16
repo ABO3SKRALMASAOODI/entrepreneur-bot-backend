@@ -339,13 +339,15 @@ def generate_spec(project: str, clarifications: str):
         "<ISO timestamp>", datetime.utcnow().isoformat() + "Z"
     )
     try:
-        resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini", temperature=0.05,
-            messages=[
-                {"role": "system", "content": SPEC_SYSTEM},
-                {"role": "user", "content": filled}
-            ],
-        )
+       resp = openai.ChatCompletion.create(
+        model="gpt-5",          # 🚀 richest brain
+        temperature=0.25,       # enough richness to expand, still deterministic
+        messages=[
+        {"role": "system", "content": SPEC_SYSTEM},
+        {"role": "user", "content": filled}
+    ],
+)
+
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
     raw = resp.choices[0].message["content"]
