@@ -331,10 +331,6 @@ def boost_spec_depth(spec: dict) -> dict:
 
 
 # ===== Spec Generator =====
-from openai import OpenAI
-client = OpenAI()
-
-# ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
     """
     Generates a fully detailed orchestrator spec for the given project and constraints.
@@ -350,21 +346,21 @@ def generate_spec(project: str, clarifications: str):
 
     try:
         # === Generate initial spec with orchestrator ===
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",  # ⚡ switched back to 4o-mini as you asked
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",  # ⚡ legacy client call
             temperature=0.25,
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": filled}
             ]
         )
-        raw = resp.choices[0].message.content
+        raw = resp["choices"][0]["message"]["content"]
         spec = _extract_json_strict(raw)
 
         # === Retry once if JSON invalid ===
         if not spec:
             retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
-            resp = client.chat.completions.create(
+            resp = openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 temperature=0.25,
                 messages=[
@@ -372,7 +368,7 @@ def generate_spec(project: str, clarifications: str):
                     {"role": "user", "content": retry_prompt}
                 ]
             )
-            raw = resp.choices[0].message.content
+            raw = resp["choices"][0]["message"]["content"]
             spec = _extract_json_strict(raw)
 
         if not spec:
@@ -413,6 +409,7 @@ def generate_spec(project: str, clarifications: str):
 
     except Exception as e:
         raise RuntimeError(f"OpenAI API error: {e}")
+
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
