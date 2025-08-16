@@ -17,86 +17,85 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # =====================================================
 # 1. Utility Functions
 # =====================================================
-
-def get_agent_files(spec):
-    """Extract all unique file names from orchestrator spec."""
+def get_agent_files(spec: dict) -> list[str]:
+    """
+    Extract all unique file names from the orchestrator spec.
+    Works with the new universal spec format (files[], dependency_graph[]).
+    """
     files = set()
 
-    for f in spec.get("interface_stub_files", []):
-        if "file" in f:
+    # Collect from files[] section
+    for f in spec.get("files", []):
+        if isinstance(f, dict) and "file" in f:
             files.add(f["file"])
 
-    for agent in spec.get("agent_blueprint", []):
-        desc = agent.get("description", "")
-        if "implementing" in desc:
-            part = desc.split("implementing", 1)[1].strip().split(" ")[0]
-            if "." in part:
-                files.add(part)
-
-    for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if "file" in func:
-            files.add(func["file"])
-
+    # Collect from dependency_graph[]
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             files.add(dep["file"])
         for d in dep.get("dependencies", []):
             files.add(d)
 
+    # Collect from global_reference_index[]
     for ref in spec.get("global_reference_index", []):
         if "file" in ref:
             files.add(ref["file"])
 
     return sorted(files)
 
-
-def extract_file_spec(spec, file_name):
-    """Extract only the parts of the spec relevant to a single file."""
+def extract_file_spec(spec: dict, file_name: str) -> dict:
+    """
+    Extract only the contracts and notes relevant to a single file.
+    """
     file_spec = {
         "file_name": file_name,
         "functions": [],
-        "db_tables": [],
-        "api_endpoints": [],
+        "apis": [],
+        "entities": [],
         "protocols": [],
-        "shared_schemas": spec.get("shared_schemas"),
+        "errors": [],
+        "compatibility_notes": [],
+        "shared_schemas": spec.get("core_shared_schemas", None),
         "config_and_constants": None,
-        "compatibility_notes": []
     }
 
-    for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if func.get("file") == file_name:
+    contracts = spec.get("contracts", {})
+    depth_info = spec.get("__depth_boost", {}).get(file_name, {})
+
+    # Match functions
+    for func in contracts.get("functions", []):
+        if file_name in json.dumps(func):
             file_spec["functions"].append(func)
 
-    for table in spec.get("db_schema", []):
-        if "db" in file_name.lower() or any(
-            table["table"] in json.dumps(func) for func in file_spec["functions"]
-        ):
-            if table not in file_spec["db_tables"]:
-                file_spec["db_tables"].append(table)
+    # Match APIs
+    for api in contracts.get("apis", []):
+        if file_name in json.dumps(api):
+            file_spec["apis"].append(api)
 
-    for api in spec.get("api_contracts", []):
-        for func in file_spec["functions"]:
-            if func.get("name") in json.dumps(api):
-                file_spec["api_endpoints"].append(api)
+    # Match entities
+    for ent in contracts.get("entities", []):
+        if file_name in json.dumps(ent):
+            file_spec["entities"].append(ent)
 
-    for proto in spec.get("inter_agent_protocols", []):
+    # Match protocols
+    for proto in contracts.get("protocols", []):
         if file_name in json.dumps(proto):
             file_spec["protocols"].append(proto)
-        else:
-            for func in file_spec["functions"]:
-                if func.get("name") in json.dumps(proto):
-                    file_spec["protocols"].append(proto)
-                    break
 
-    for f in spec.get("interface_stub_files", []):
-        if f["file"] == "config.py":
-            file_spec["config_and_constants"] = f
+    # Match errors
+    for err in contracts.get("errors", []):
+        if file_name in json.dumps(err):
+            file_spec["errors"].append(err)
 
-    depth_info = spec.get("__depth_boost", {}).get(file_name, {})
+    # Inject depth notes (engineering guidelines)
     file_spec["compatibility_notes"].extend(depth_info.get("notes", []))
-    file_spec["db_tables"].extend(depth_info.get("db", []))
-    file_spec["api_endpoints"].extend(depth_info.get("api", []))
-    file_spec["protocols"].extend(depth_info.get("protocols", []))
+
+    # Link config.py
+    if file_name == "config.py":
+        file_spec["config_and_constants"] = {
+            "constants": spec.get("constants", {}),
+            "errors": contracts.get("errors", [])
+        }
 
     return file_spec
 
@@ -238,25 +237,34 @@ def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
-
-def run_agents_for_spec(spec):
-    """Runs generator + tester loop for each file until approved or retries exhausted."""
+def run_agents_for_spec(spec: dict) -> list[dict]:
+    """
+    Runs generator → tester → fixer loop for each file until approved.
+    Returns final outputs.
+    """
     files = get_agent_files(spec)
     outputs = []
 
     for file_name in files:
         file_spec = extract_file_spec(spec, file_name)
-        review_feedback = None
         approved = False
         attempts = 0
+        generated_code = None
+        review_feedback = None
 
         while not approved and attempts < MAX_RETRIES:
-            code = run_generator_agent(file_name, file_spec, spec, review_feedback)
-            review = run_tester_agent(file_name, file_spec, spec, code)
+            if attempts == 0:
+                # First attempt = fresh generator
+                generated_code = run_generator_agent(file_name, file_spec, spec)
+            else:
+                # Next attempts = fixer applies feedback
+                generated_code = run_fixer_agent(file_name, file_spec, spec, generated_code, review_feedback)
 
-            if "✅ APPROVED" in review or not is_hard_failure(review):
+            review = run_tester_agent(file_name, file_spec, spec, generated_code)
+
+            if "✅ APPROVED" in review:
                 approved = True
-                outputs.append({"file": file_name, "code": code})
+                outputs.append({"file": file_name, "code": generated_code})
                 print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
             else:
                 print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
@@ -270,14 +278,43 @@ def run_agents_for_spec(spec):
     try:
         verify_imports(outputs)
     except Exception as e:
-        print(f"⚠️ Import check failed but continuing: {e}")
+        print(f"⚠️ Import check failed: {e}")
 
     try:
         verify_tests(outputs, spec)
     except Exception as e:
-        print(f"⚠️ Tests failed but continuing: {e}")
+        print(f"⚠️ Integration tests failed: {e}")
 
     return outputs
+def run_fixer_agent(file_name, file_spec, full_spec, prev_code, review_feedback):
+    """
+    Fixer Agent: takes previous code and tester feedback,
+    applies corrections without rewriting from scratch.
+    """
+    fixer_prompt = f"""
+You are fixing {file_name}.
+Here is the last version of the code and the tester feedback.
+Apply ONLY the required corrections. Keep working code unchanged.
+---
+FILE-SPEC:
+{json.dumps(file_spec, indent=2)}
+
+PREVIOUS CODE:
+{prev_code}
+
+TESTER FEEDBACK:
+{review_feedback}
+"""
+    resp = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        request_timeout=60,
+        messages=[
+            {"role": "system", "content": "You are a Fixer Agent. Patch broken code without rewriting everything."},
+            {"role": "user", "content": fixer_prompt}
+        ]
+    )
+    return resp.choices[0].message.content.strip()
 
 # =====================================================
 # 4. Flask Endpoint
