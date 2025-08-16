@@ -196,41 +196,35 @@ FILE-SPEC:
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
 
+def run_tester_agent(file_name, code, spec):
+    """Runs the tester agent on a generated file and returns feedback."""
+    prompt = f"""
+    You are the tester agent. Review the file: {file_name}.
+    Check the following:
+    1. Code matches the spec.
+    2. No syntax errors.
+    3. No missing imports.
+    4. Production-ready quality.
 
-def run_tester_agent(file_name, file_spec, full_spec, generated_code):
-    """Tester Agent: relaxed review — only blocks on hard errors."""
-    if file_name in _first_review_cache:
-        return _first_review_cache[file_name]
+    Respond with either:
+    - '✅ APPROVED' if the file is flawless.
+    - A list of blocking issues otherwise.
 
-    tester_prompt = f"""
-Review {file_name}.
-List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions.
-Ignore minor style/docstring/naming issues (just note them briefly if any).
-If code is usable and correct, output ONLY: ✅ APPROVED
----
-FULL SPEC:
-{json.dumps(full_spec, indent=2)}
-
-FILE-SPEC:
-{json.dumps(file_spec, indent=2)}
-
-CODE:
-{generated_code}
-"""
-
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        temperature=0,
-        request_timeout=60,
-        messages=[
-            {"role": "system", "content": "You are a strict reviewer, but approve code unless there are fatal issues."},
-            {"role": "user", "content": tester_prompt}
-        ]
-    )
-
-    review_text = resp.choices[0].message["content"]
-    _first_review_cache[file_name] = review_text
-    return review_text
+    File content:
+    {code}
+    """
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": "You are a strict file-specific reviewer."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        return f"Tester error: {e}"
 
 def is_hard_failure(review: str) -> bool:
     """
@@ -247,68 +241,65 @@ def is_hard_failure(review: str) -> bool:
         "hoisting"
     ]
     return any(term.lower() in review.lower() for term in critical_terms)
-def run_agents_for_spec(spec: dict) -> dict:
+def run_agents_for_spec(spec):
+    """Run generator, tester, and fixer agents for each file in the spec."""
     final_outputs = {}
     failures = {}
 
-    candidate_files = get_agent_files(spec)
+    # Step 1: Extract files from spec
+    files = get_agent_files(spec)
 
-    for file_name in candidate_files:
-        file_spec = extract_file_spec(spec, file_name)
-        print(f"[Pipeline] Starting generation for: {file_name}")
+    for file_name in files:
+        file_spec = extract_file_spec(file_name, spec)
 
-        generated_code = None
-        success = False
-        attempts = 0
-        review_feedback = ""
+        # --- Generate Code ---
+        generated_code = run_generator_agent(file_name, file_spec, spec)
+        if not generated_code:
+            failures[file_name] = "❌ Generator failed"
+            continue
 
-        while attempts < MAX_RETRIES and not success:
-            print(f"[Pipeline] Attempt {attempts + 1} for {file_name}")
-            attempts += 1
+        # --- Tester Review ---
+        review_feedback = run_tester_agent(file_name, generated_code, spec)
 
-            if attempts == 1:
-                generated_code = run_generator_agent(file_name, file_spec, spec)
+        # Check approval more flexibly
+        if (
+            not review_feedback
+            or "approved" in review_feedback.lower()
+            or "✅" in review_feedback
+        ):
+            final_outputs[file_name] = {"file": file_name, "code": generated_code}
+        else:
+            # --- Attempt Fix ---
+            fixed_code = run_fixer_agent(file_name, generated_code, review_feedback, spec)
+            recheck_feedback = run_tester_agent(file_name, fixed_code, spec)
+
+            if (
+                recheck_feedback
+                and ("approved" in recheck_feedback.lower() or "✅" in recheck_feedback)
+            ):
+                final_outputs[file_name] = {"file": file_name, "code": fixed_code}
             else:
-                if attempts >= 3 and review_feedback:
-                    generated_code = run_restructuring_agent(file_name, file_spec, spec, generated_code, review_feedback)
-                else:
-                    generated_code = run_fixer_agent(file_name, file_spec, spec, generated_code, review_feedback)
+                failures[file_name] = review_feedback
 
-            review_feedback = run_tester_agent(file_name, file_spec, spec, generated_code)
-            print(f"[Tester Feedback] {file_name}: {review_feedback}")
-
-            if not review_feedback or "approved" in review_feedback.lower():
-                success = True
-                final_outputs[file_name] = generated_code
-                print(f"[Pipeline] {file_name} approved on attempt {attempts}")
-                break
-
-            if is_hard_failure(review_feedback):
-                print(f"[Pipeline] Hard failure detected for {file_name}")
-                break
-
-        if not success:
-            failures[file_name] = {
-                "attempts": attempts,
-                "last_feedback": review_feedback,
-                "last_code": generated_code,
+    # --- Final Verification: imports + tests ---
+    if final_outputs:
+        try:
+            outputs_as_dicts = list(final_outputs.values())
+            verify_imports(outputs_as_dicts)
+            verify_tests(outputs_as_dicts, spec)
+        except Exception as e:
+            return {
+                "status": "tests_failed",
+                "approved_files": final_outputs,
+                "failed_files": failures,
+                "message": f"Verification failed: {e}",
             }
-            print(f"[Pipeline] Failed to approve {file_name} after {attempts} attempts")
 
-    if failures:
-        return {
-            "status": "partial_failure",
-            "approved_files": final_outputs,
-            "failed_files": failures,
-            "message": "Some files could not be approved even after retries",
-        }
-    else:
-        return {
-            "status": "success",
-            "approved_files": final_outputs,
-            "message": "All files successfully generated and approved",
-        }
-
+    return {
+        "status": "success" if final_outputs else "failed",
+        "approved_files": final_outputs,
+        "failed_files": failures,
+    }
 
 def run_fixer_agent(file_name, file_spec, full_spec, prev_code, review_feedback):
     """

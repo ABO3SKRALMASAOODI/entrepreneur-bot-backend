@@ -303,104 +303,77 @@ def boost_spec_depth(spec: dict) -> dict:
 
 
 # ===== Spec Generator =====
-def run_agents_for_spec(spec: dict) -> dict:
+def generate_spec(project: str, clarifications: str):
     """
-    Orchestrator → Agents → Tester → Fixer pipeline with restructuring fallback.
-    Generates all required files for a project specification.
-    Ensures final code passes tester approval, imports, and integration tests.
+    Generates a complete orchestrator spec, validates it,
+    enforces constraints, and boosts depth for agents.
     """
+    clarifications_raw = clarifications.strip() or "no specific constraints provided"
+    clarifications_safe = json.dumps(clarifications_raw)[1:-1]
+    project_safe = json.dumps(project)[1:-1]
 
-    final_outputs = {}
-    failures = {}
+    filled = SPEC_TEMPLATE.replace("{project}", project_safe)\
+                          .replace("{clarifications}", clarifications_safe)\
+                          .replace("<ISO timestamp>", datetime.utcnow().isoformat() + "Z")
 
-    candidate_files = get_agent_files(spec)
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            temperature=0.25,
+            messages=[
+                {"role": "system", "content": SPEC_SYSTEM},
+                {"role": "user", "content": filled}
+            ]
+        )
+        raw = resp.choices[0].message.content
+        spec = _extract_json_strict(raw)
 
-    for file_name in candidate_files:
-        file_spec = extract_file_spec(spec, file_name)
-        print(f"[Pipeline] Starting generation for: {file_name}")
-
-        generated_code = None
-        success = False
-        attempts = 0
-        review_feedback = ""
-
-        while attempts < MAX_RETRIES and not success:
-            attempts += 1
-            print(f"[Pipeline] Attempt {attempts} for {file_name}")
-
-            # --- Generation Phase ---
-            if attempts == 1:
-                generated_code = run_generator_agent(file_name, file_spec, spec)
-            else:
-                if attempts >= 3 and review_feedback:
-                    print(f"[Pipeline] Escalating {file_name} to restructuring agent")
-                    generated_code = run_restructuring_agent(
-                        file_name, file_spec, spec, generated_code, review_feedback
-                    )
-                else:
-                    generated_code = run_fixer_agent(
-                        file_name, file_spec, spec, generated_code, review_feedback
-                    )
-
-            if not generated_code:
-                review_feedback = "❌ No code generated"
+        # Retry loop in case JSON was malformed
+        for attempt in range(3):
+            if spec:
                 break
+            retry_prompt = (
+                f"Attempt {attempt+1}: Previous output invalid. "
+                "Output STRICT JSON only, no comments or markdown."
+            )
+            resp = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                temperature=0.25,
+                messages=[
+                    {"role": "system", "content": SPEC_SYSTEM},
+                    {"role": "user", "content": retry_prompt}
+                ]
+            )
+            raw = resp.choices[0].message.content
+            spec = _extract_json_strict(raw)
 
-            # --- Tester Phase ---
-            review_feedback = run_tester_agent(file_name, file_spec, spec, generated_code)
-            print(f"[Tester Feedback] {file_name}: {review_feedback}")
+        if not spec:
+            raise ValueError("❌ Failed to parse JSON spec after 3 retries")
 
-            if (
-                not review_feedback
-                or "approved" in review_feedback.lower()
-                or "✅" in review_feedback
-            ):
-                success = True
-                final_outputs[file_name] = {"file": file_name, "code": generated_code}
-                print(f"[Pipeline] {file_name} approved on attempt {attempts}")
-                break
+        # --- Validate + enforce universal constraints ---
+        spec = enforce_constraints(spec, clarifications_raw)
+        spec = boost_spec_depth(spec)
 
-            if is_hard_failure(review_feedback):
-                print(f"[Pipeline] Hard failure detected for {file_name}")
-                break
-
-        if not success:
-            failures[file_name] = {
-                "attempts": attempts,
-                "last_feedback": review_feedback,
-                "last_code": generated_code,
-            }
-            print(f"[Pipeline] Failed to approve {file_name} after {attempts} attempts")
-
-    # === Final verification step ===
-    if final_outputs:
-        try:
-            outputs_as_dicts = list(final_outputs.values())
-            verify_imports(outputs_as_dicts)
-            verify_tests(outputs_as_dicts, spec)
-        except Exception as e:
-            return {
-                "status": "tests_failed",
-                "approved_files": final_outputs,
-                "failed_files": failures,
-                "message": f"Verification failed: {e}",
-            }
-
-    # === Response ===
-    if failures:
-        return {
-            "status": "partial_failure",
-            "approved_files": final_outputs,
-            "failed_files": failures,
-            "message": "Some files could not be approved even after retries",
-        }
-    else:
-        return {
-            "status": "success",
-            "approved_files": final_outputs,
-            "message": "All files successfully generated, tested, and approved",
+        # --- Define agent/tester roles ---
+        spec["_agent_role_prefix"] = {
+            "generator": (
+                "You are the world’s most elite coding agent. "
+                "Deliver FINAL, PRODUCTION-READY code in one pass. "
+                "Follow the spec exactly and guarantee compatibility."
+            ),
+            "tester": (
+                "You are a file-specific reviewer. "
+                "List ALL blocking issues in a file. Approve only if flawless."
+            )
         }
 
+        # Save state
+        project_state[project] = spec
+        save_state(project_state)
+        return spec
+
+    except Exception as e:
+        raise RuntimeError(f"OpenAI API error: {e}")
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
