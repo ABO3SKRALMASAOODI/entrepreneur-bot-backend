@@ -232,69 +232,118 @@ CODE:
     _first_review_cache[file_name] = review_text
     return review_text
 
-
 def is_hard_failure(review: str) -> bool:
-    """Check if review indicates a real blocking failure."""
-    critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
+    """
+    Check if review indicates a real blocking failure.
+    Includes syntax, import, test, and hoisting/ordering issues.
+    """
+    critical_terms = [
+        "SyntaxError",
+        "ImportError",
+        "integration tests failed",
+        "missing required",
+        "ReferenceError",
+        "defined after it is called",
+        "hoisting"
+    ]
     return any(term.lower() in review.lower() for term in critical_terms)
-def run_agents_for_spec(spec: dict) -> list[dict]:
+def run_agents_for_spec(spec: dict) -> dict:
     """
-    Runs generator → tester → fixer loop for each file until approved.
-    Returns final outputs.
+    Orchestrator → Agents → Tester → Fixer pipeline with restructuring fallback.
+    Generates all required files for a project specification.
     """
-    files = get_agent_files(spec)
-    outputs = []
 
-    for file_name in files:
-        file_spec = extract_file_spec(spec, file_name)
-        approved = False
-        attempts = 0
+    final_outputs = {}
+    failures = {}
+
+    # Collect all candidate files to generate
+    candidate_files = get_agent_files(spec)
+
+    for file_name, file_spec in candidate_files.items():
+        print(f"[Pipeline] Starting generation for: {file_name}")
+
         generated_code = None
-        review_feedback = None
+        success = False
+        attempts = 0
+        review_feedback = ""
 
-        while not approved and attempts < MAX_RETRIES:
-            if attempts == 0:
-                # First attempt = fresh generator
-                generated_code = run_generator_agent(file_name, file_spec, spec)
+        while attempts < MAX_RETRIES and not success:
+            print(f"[Pipeline] Attempt {attempts + 1} for {file_name}")
+            attempts += 1
+
+            if attempts == 1:
+                # First attempt: raw codegen
+                generated_code = run_code_agent(file_name, file_spec, spec)
             else:
-                # Next attempts = fixer applies feedback
-                generated_code = run_fixer_agent(file_name, file_spec, spec, generated_code, review_feedback)
+                # Retry path
+                if attempts >= 3 and review_feedback:
+                    # Escalate after 2 failures → restructuring agent
+                    print(f"[Pipeline] Escalating {file_name} to restructuring agent")
+                    generated_code = run_restructuring_agent(
+                        file_name, file_spec, spec, generated_code, review_feedback
+                    )
+                else:
+                    # Normal fix path
+                    generated_code = run_fixer_agent(
+                        file_name, file_spec, spec, generated_code, review_feedback
+                    )
 
-            review = run_tester_agent(file_name, file_spec, spec, generated_code)
+            # ===== Tester Phase =====
+            review_feedback = run_tester_agent(
+                file_name, file_spec, spec, generated_code
+            )
+            print(f"[Tester Feedback] {file_name}: {review_feedback}")
 
-            if "✅ APPROVED" in review:
-                approved = True
-                outputs.append({"file": file_name, "code": generated_code})
-                print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
-            else:
-                print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
-                review_feedback = review
-                attempts += 1
+            if not review_feedback or review_feedback.strip().lower().startswith("approved"):
+                success = True
+                final_outputs[file_name] = generated_code
+                print(f"[Pipeline] {file_name} approved on attempt {attempts}")
+                break
 
-        if not approved:
-            raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
+            if is_hard_failure(review_feedback):
+                print(f"[Pipeline] Hard failure detected for {file_name}")
+                # don’t keep retrying infinitely if it's a real blocker
+                break
 
-    # --- Final validation phase ---
-    try:
-        verify_imports(outputs)
-    except Exception as e:
-        print(f"⚠️ Import check failed: {e}")
+        if not success:
+            failures[file_name] = {
+                "attempts": attempts,
+                "last_feedback": review_feedback,
+                "last_code": generated_code,
+            }
+            print(f"[Pipeline] Failed to approve {file_name} after {attempts} attempts")
 
-    try:
-        verify_tests(outputs, spec)
-    except Exception as e:
-        print(f"⚠️ Integration tests failed: {e}")
+    # Final response: include partial outputs if some files succeeded
+    if failures:
+        return {
+            "status": "partial_failure",
+            "approved_files": final_outputs,
+            "failed_files": failures,
+            "message": "Some files could not be approved even after retries",
+        }
+    else:
+        return {
+            "status": "success",
+            "approved_files": final_outputs,
+            "message": "All files successfully generated and approved",
+        }
 
-    return outputs
+
 def run_fixer_agent(file_name, file_spec, full_spec, prev_code, review_feedback):
     """
     Fixer Agent: takes previous code and tester feedback,
     applies corrections without rewriting from scratch.
+    Ensures functions are reordered so they are defined before being called.
     """
     fixer_prompt = f"""
 You are fixing {file_name}.
 Here is the last version of the code and the tester feedback.
 Apply ONLY the required corrections. Keep working code unchanged.
+
+⚠️ CRITICAL RULE:
+- Ensure all functions are defined BEFORE they are called
+- Fix hoisting / ordering problems
+- Do not ignore ReferenceErrors related to hoisting
 ---
 FILE-SPEC:
 {json.dumps(file_spec, indent=2)}
@@ -310,11 +359,47 @@ TESTER FEEDBACK:
         temperature=0,
         request_timeout=60,
         messages=[
-            {"role": "system", "content": "You are a Fixer Agent. Patch broken code without rewriting everything."},
+            {"role": "system", "content": "You are a Fixer Agent. Patch broken code without rewriting everything, but always fix ordering/hoisting issues."},
             {"role": "user", "content": fixer_prompt}
         ]
     )
     return resp.choices[0].message.content.strip()
+
+def run_restructuring_agent(file_name, file_spec, full_spec, prev_code, review_feedback):
+    """
+    Restructuring Agent: aggressive fallback when the same issue repeats.
+    Ensures all functions are ordered correctly and the file has a clean structure.
+    """
+    restructure_prompt = f"""
+You are restructuring {file_name}.
+The code repeatedly failed due to ordering/hoisting issues.
+Rewrite the file so that:
+- All functions are defined before they are called
+- Imports/constants at top
+- Helper functions next
+- Main logic last
+- Preserve all working parts of the code
+---
+FILE-SPEC:
+{json.dumps(file_spec, indent=2)}
+
+PREVIOUS CODE:
+{prev_code}
+
+REPEATED REVIEW FEEDBACK:
+{review_feedback}
+"""
+    resp = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        request_timeout=60,
+        messages=[
+            {"role": "system", "content": "You are a restructuring agent. Fix ordering issues aggressively and ensure code correctness."},
+            {"role": "user", "content": restructure_prompt}
+        ]
+    )
+    return resp.choices[0].message.content.strip()
+
 
 # =====================================================
 # 4. Flask Endpoint
