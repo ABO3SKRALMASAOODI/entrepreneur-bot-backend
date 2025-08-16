@@ -331,6 +331,10 @@ def boost_spec_depth(spec: dict) -> dict:
 
 
 # ===== Spec Generator =====
+from openai import OpenAI
+client = OpenAI()
+
+# ===== Spec Generator =====
 def generate_spec(project: str, clarifications: str):
     clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
     clarifications_safe = json.dumps(clarifications_raw)[1:-1]
@@ -340,31 +344,30 @@ def generate_spec(project: str, clarifications: str):
     )
 
     try:
-        resp = openai.chat.completions.create(
+        # ✅ New call
+        resp = client.chat.completions.create(
             model="gpt-5",
+            temperature=0.25,  # adjustable
             messages=[
                 {"role": "system", "content": SPEC_SYSTEM},
                 {"role": "user", "content": filled}
-            ],
-            reasoning_effort="high",
-            verbosity="high"
+            ]
         )
-        raw = resp.choices[0].message["content"]
+        raw = resp.choices[0].message.content
         spec = _extract_json_strict(raw)
 
         # retry once if JSON invalid
         if not spec:
             retry_prompt = "The previous output was not valid JSON. Output the exact same specification again as STRICT JSON only."
-            resp = openai.chat.completions.create(
+            resp = client.chat.completions.create(
                 model="gpt-5",
+                temperature=0.25,
                 messages=[
                     {"role": "system", "content": SPEC_SYSTEM},
                     {"role": "user", "content": retry_prompt}
-                ],
-                reasoning_effort="medium",   # lighter retry
-                verbosity="low"
+                ]
             )
-            raw = resp.choices[0].message["content"]
+            raw = resp.choices[0].message.content
             spec = _extract_json_strict(raw)
 
         if not spec:
