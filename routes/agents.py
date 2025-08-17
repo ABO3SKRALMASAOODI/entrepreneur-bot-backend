@@ -167,17 +167,21 @@ def orchestrator():
         try:
             # --- Run orchestrators with validator + retries ---
             def run_with_validation(name, generator, validator_role, *args, max_retries=3):
-                for attempt in range(max_retries):
-                    spec = generator(*args)
-                    result = call_validator(validator_role, spec, session["project"], session["clarifications"])
-                    if result["pass"]:
-                        return spec, []
-                    else:
-                        # If invalid, retry using suggestion as extra clarifications
-                        args = (*args[:-1], args[-1] + " " + result["suggestion"])
-                        if attempt == max_retries - 1:
-                            return spec, result["issues"]
-                return {}, ["Validator gave up after retries"]
+             for attempt in range(max_retries):
+              spec = generator(*args)
+             result = call_validator(validator_role, spec, session["project"], session["clarifications"])
+             if result["pass"]:
+             return spec, []
+             else:
+             if attempt < max_retries - 1:
+                # Only inject suggestion if the last arg is a string
+                if isinstance(args[-1], str):
+                    args = (*args[:-1], args[-1] + " " + result["suggestion"])
+                # Otherwise just retry with the same args
+              if attempt == max_retries - 1:
+             return spec, result["issues"]
+             return {}, ["Validator gave up after retries"]
+
 
             # ---- Orchestrators ----
             description_spec, desc_issues = run_with_validation(
