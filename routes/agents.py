@@ -153,6 +153,7 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
+    # ====== STAGE 1: Ask for project ======
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
@@ -160,6 +161,7 @@ def orchestrator():
         session["stage"] = "clarifications"
         return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
 
+    # ====== STAGE 2: Ask for clarifications ======
     if session["stage"] == "clarifications":
         session["clarifications"] = clarifications or project
         session["stage"] = "done"
@@ -167,21 +169,23 @@ def orchestrator():
         try:
             # --- Run orchestrators with validator + retries ---
             def run_with_validation(name, generator, validator_role, *args, max_retries=3):
-             for attempt in range(max_retries):
-              spec = generator(*args)
-             result = call_validator(validator_role, spec, session["project"], session["clarifications"])
-             if result["pass"]:
-             return spec, []
-             else:
-             if attempt < max_retries - 1:
-                # Only inject suggestion if the last arg is a string
-                if isinstance(args[-1], str):
-                    args = (*args[:-1], args[-1] + " " + result["suggestion"])
-                # Otherwise just retry with the same args
-              if attempt == max_retries - 1:
-             return spec, result["issues"]
-             return {}, ["Validator gave up after retries"]
+                for attempt in range(max_retries):
+                    spec = generator(*args)
+                    result = call_validator(validator_role, spec, session["project"], session["clarifications"])
 
+                    if result["pass"]:
+                        return spec, []
+                    else:
+                        if attempt < max_retries - 1:
+                            # Only adjust clarifications if last arg is a string
+                            if isinstance(args[-1], str):
+                                args = (*args[:-1], args[-1] + " " + result["suggestion"])
+                            # Otherwise, retry with same args (dict inputs won’t support string concat)
+                        else:
+                            # Final attempt → return issues
+                            return spec, result["issues"]
+
+                return {}, ["Validator gave up after retries"]
 
             # ---- Orchestrators ----
             description_spec, desc_issues = run_with_validation(
@@ -200,6 +204,7 @@ def orchestrator():
                 "Tests", generate_tests_spec, "tests", session["project"], contracts_spec
             )
 
+            # ---- Merge all specs ----
             merged = merge_specs({
                 "description": description_spec,
                 "contracts": contracts_spec,
@@ -212,6 +217,7 @@ def orchestrator():
             project_state[session["project"]] = final
             save_state(project_state)
 
+            # ---- Run Agents ----
             agent_outputs = run_agents_for_spec(final)
 
             return jsonify([
@@ -226,4 +232,5 @@ def orchestrator():
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate project: {e}"}), 500
 
+    # ====== FALLBACK ======
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
