@@ -112,38 +112,37 @@ def orchestrator():
         session["stage"] = "done"
         try:
             description_spec = generate_description_spec(session["project"], session["clarifications"])
-contracts_spec = generate_contracts_spec(session["project"], session["clarifications"])
-files_spec = generate_files_spec(contracts_spec)
-utilities_spec = generate_utilities_spec(files_spec)
-tests_spec = generate_tests_spec(session["project"], contracts_spec)
+            contracts_spec = generate_contracts_spec(session["project"], session["clarifications"])
+            files_spec = generate_files_spec(contracts_spec)
+            utilities_spec = generate_utilities_spec(files_spec)
+            tests_spec = generate_tests_spec(session["project"], contracts_spec)
 
-merged = merge_specs({
-    "description": description_spec,
-    "contracts": contracts_spec,
-    "files": files_spec,
-    "utilities": utilities_spec,
-    "tests": tests_spec
-})
+            merged = merge_specs({
+                "description": description_spec,
+                "contracts": contracts_spec,
+                "files": files_spec,
+                "utilities": utilities_spec,
+                "tests": tests_spec
+            })
 
-   errors = validate_spec(merged)
-   if errors:
-    raise ValueError(f"Spec validation failed: {errors}")
+            errors = validate_spec(merged)
+            if errors:
+                raise ValueError(f"Spec validation failed: {errors}")
 
-    final = boost_spec_depth(merged)
-    project_state[session["project"]] = final
-    save_state(project_state)
+            final = boost_spec_depth(merged)
+            project_state[session["project"]] = final
+            save_state(project_state)
 
-    agent_outputs = run_agents_for_spec(final)
+            agent_outputs = run_agents_for_spec(final)
 
-    return jsonify([
-    {"role": "orchestrator", "name": "Description", "content": description_spec},
-    {"role": "orchestrator", "name": "Contracts", "content": contracts_spec},
-    {"role": "orchestrator", "name": "Files", "content": files_spec},
-    {"role": "orchestrator", "name": "Utilities", "content": utilities_spec},
-    {"role": "orchestrator", "name": "Tests", "content": tests_spec},
-    {"role": "assistant", "status": "MERGED_SPEC", "content": final, "agents_output": agent_outputs}
-    ])
-
+            return jsonify([
+                {"role": "orchestrator", "name": "Description", "content": description_spec},
+                {"role": "orchestrator", "name": "Contracts", "content": contracts_spec},
+                {"role": "orchestrator", "name": "Files", "content": files_spec},
+                {"role": "orchestrator", "name": "Utilities", "content": utilities_spec},
+                {"role": "orchestrator", "name": "Tests", "content": tests_spec},
+                {"role": "assistant", "status": "MERGED_SPEC", "content": final, "agents_output": agent_outputs}
+            ])
         except Exception as e:
             return jsonify({"role": "assistant", "content": f"❌ Failed to generate project: {e}"}), 500
 
