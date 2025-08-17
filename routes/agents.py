@@ -1,14 +1,12 @@
 # routes/orchestrator.py
-
 from flask import Blueprint, request, jsonify
-import os, json
+import os, json, re, hashlib
 from datetime import datetime
 import openai
 from pathlib import Path
 from typing import Dict, Any
-from flask_cors import cross_origin
 from routes.agents_pipeline import run_agents_for_spec
-from routes.spec_merger import merge_specs, validate_spec, boost_spec_depth
+from flask_cors import cross_origin
 
 # ===== Flask Blueprint =====
 agents_bp = Blueprint("agents", __name__)
@@ -28,115 +26,308 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 project_state = load_state()
+
+# ===== Session Store =====
 user_sessions = {}
 
-# ====== Core LLM Helper ======
-def call_orchestrator(prompt: str, system_msg: str) -> Dict[str, Any]:
-    """Single call to GPT orchestrator with strict JSON return"""
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        temperature=0.25,
-        messages=[
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": prompt}
+# ===== Strict JSON Extractor =====
+def _extract_json_strict(text: str):
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1:
+        return None
+    try:
+        return json.loads(text[start:end+1])
+    except json.JSONDecodeError:
+        return None
+
+# ===== Universal Core Schema =====
+CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Dict, List, Optional
+import datetime
+
+class Status(str, Enum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+
+class ErrorCode(str, Enum):
+    VALIDATION_ERROR = "validation_error"
+    NOT_FOUND = "not_found"
+    INTERNAL_ERROR = "internal_error"
+
+@dataclass
+class Entity:
+    id: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+@dataclass
+class ServiceResponse:
+    status: Status
+    message: str
+    data: Optional[Any] = None
+
+@dataclass
+class ServiceRequest:
+    metadata: Dict[str, Any]
+    payload: Dict[str, Any]
+"""
+CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
+
+# ===== Universal Orchestrator Instructions =====
+SPEC_SYSTEM = (
+    "You are the most advanced universal multi-agent project orchestrator in existence. "
+    "Your output must be FINAL, COMPLETE, and ZERO-AMBIGUITY so that 100+ independent coding agents "
+    "can implement their files in isolation and when combined, the system runs flawlessly.\n"
+    "--- UNIVERSAL COMPATIBILITY RULES ---\n"
+    "1. First define the CONTRACTS: entities, APIs, functions, protocols, and error codes.\n"
+    "2. Every contract must have: exact input/output types, example I/O, pre/postconditions.\n"
+    "3. Then define FILES: each file specifies which contracts it implements (not free choice).\n"
+    "4. Agents must implement ONLY their assigned contracts, exactly as defined.\n"
+    "5. Every function has explicit pseudocode steps.\n"
+    "6. Every data structure has exact field names, types, nullability, defaults.\n"
+    "7. Errors must map to Error Decision Table with codes → conditions → status.\n"
+    "8. Inter-agent protocols must have full step-by-step flows with success/failure handling.\n"
+    "9. Dependency graph must list all imports, avoid circulars.\n"
+    "10. Integration tests must verify contracts, protocols, and end-to-end execution.\n"
+    "11. Output must be STRICT JSON, no comments or markdown.\n"
+    "12. Scale: always break into smallest coherent files so 100–200 agents can work in parallel.\n"
+    "13. Use strict naming conventions: snake_case (functions), PascalCase (classes), UPPER_SNAKE_CASE (constants).\n"
+    "14. Never leave sections empty: populate everything fully.\n"
+    "15. Include Global Reference Index for all files, functions, classes, agents.\n"
+)
+
+# ===== Spec Template =====
+SPEC_TEMPLATE = """ Project: {project}
+Preferences/Requirements: {clarifications}
+Produce STRICT JSON with every section fully populated.
+
+{ "version": "12.0",
+  "generated_at": "<ISO timestamp>",
+  "project": "<short name>",
+  "description": "<comprehensive summary including: {clarifications}>",
+  "project_type": "<auto-detected type>",
+  "target_users": ["<primary user groups>"],
+  "tech_stack": {
+    "language": "<main language>",
+    "framework": "<framework if any>",
+    "database": "<database if any>"
+  },
+  "contracts": {
+    "entities": [
+      {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"}
+    ],
+    "apis": [
+      {
+        "name": "<APIName>",
+        "endpoint": "<url>",
+        "method": "<HTTP method or protocol>",
+        "request_schema": {"field": "type"},
+        "response_schema": {"field": "type"},
+        "example_request": {"field": "value"},
+        "example_response": {"field": "value"}
+      }
+    ],
+    "functions": [
+      {
+        "name": "<func_name>",
+        "description": "<what it does>",
+        "params": {"<param>": "<type>"},
+        "return_type": "<type>",
+        "errors": ["<error_code>"],
+        "steps": ["Step 1: ...", "Step 2: ..."],
+        "example_input": {"field": "value"},
+        "example_output": {"field": "value"}
+      }
+    ],
+    "protocols": [
+      {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]}
+    ],
+    "errors": [
+      {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>}
+    ]
+  },
+  "files": [
+    {
+      "file": "<path/filename>",
+      "language": "<language>",
+      "description": "<role in project>",
+      "implements": ["<contracts: apis, functions, protocols, entities>"],
+      "dependencies": ["<other files>"]
+    }
+  ],
+  "dependency_graph": [
+    {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}
+  ],
+  "execution_plan": [
+    {"step": 1, "description": "<implementation step>"}
+  ],
+  "global_reference_index": [
+    {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]}
+  ],
+  "integration_tests": [
+    {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"}
+  ],
+  "test_cases": [
+    {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}
+  ]
+}
+"""
+
+# ===== Constraint Enforcement =====
+def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
+    """
+    Ensures universal constraints:
+    - Clarifications merged into description.
+    - Required universal files always exist.
+    - Agent blueprint populated for all files.
+    - Global reference index always populated.
+    """
+    if clarifications.strip():
+        spec.setdefault("domain_specific", {})
+        spec["domain_specific"]["user_constraints"] = clarifications
+        if clarifications not in spec.get("description", ""):
+            spec["description"] = f"{spec.get('description', '')} | User constraints: {clarifications}"
+
+    required_files = [
+        ("config.py", "Centralized configuration and constants"),
+        ("requirements.txt", "Pinned dependencies for consistent environment"),
+        ("core_shared_schemas.py", "Universal shared schemas for all agents"),
+    ]
+    for fname, desc in required_files:
+        if not any(f.get("file") == fname for f in spec.get("files", [])):
+            spec.setdefault("files", []).append({
+                "file": fname,
+                "language": "python",
+                "description": desc,
+                "implements": [],
+                "dependencies": []
+            })
+
+    all_files = {f["file"] for f in spec.get("files", []) if "file" in f}
+    expanded_files = all_files
+    spec["agent_blueprint"] = []
+    for file_name in sorted(expanded_files):
+        base_name = file_name.rsplit(".", 1)[0]
+        agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
+        spec["agent_blueprint"].append({
+            "name": agent_name,
+            "description": f"Responsible for implementing {file_name} exactly as specified in the contracts."
+        })
+
+    if not spec.get("global_reference_index"):
+        spec["global_reference_index"] = []
+        for f in spec.get("files", []):
+            entry = {"file": f.get("file"), "functions": [], "classes": [], "agents": []}
+            if not any(e["file"] == entry["file"] for e in spec["global_reference_index"]):
+                spec["global_reference_index"].append(entry)
+
+    return spec
+
+# ===== Depth Booster =====
+def boost_spec_depth(spec: dict) -> dict:
+    if "__depth_boost" not in spec:
+        spec["__depth_boost"] = {}
+    all_files = {f["file"] for f in spec.get("files", []) if "file" in f}
+    for file_name in all_files:
+        spec["__depth_boost"].setdefault(file_name, {})
+        spec["__depth_boost"][file_name]["notes"] = [
+            f"Implement {file_name} with production-grade standards.",
+            "Follow SOLID principles, modular structure, and type hints everywhere.",
+            "Include robust error handling with mapped error codes.",
+            "Add INFO + ERROR logging; include correlation IDs for requests.",
+            "Ensure security best practices (sanitize inputs, protect secrets).",
+            "Optimize for performance: efficient algorithms, avoid bottlenecks.",
+            "Design deterministic, unit-testable functions with clear contracts.",
+            "Respect API/entity/function definitions in contracts 100% literally.",
+            "Add full docstrings, inline comments for tricky logic.",
+            "Ensure compatibility: no drift in naming, signatures, or protocols."
         ]
+        contracts = spec.get("contracts", {})
+        spec["__depth_boost"][file_name]["contracts"] = {
+            "entities": contracts.get("entities", []),
+            "apis": contracts.get("apis", []),
+            "functions": contracts.get("functions", []),
+            "protocols": contracts.get("protocols", []),
+            "errors": contracts.get("errors", []),
+        }
+    return spec
+
+# ===== Spec Generator =====
+def generate_spec(project: str, clarifications: str):
+    clarifications_raw = clarifications.strip() if clarifications.strip() else "no specific constraints provided"
+    clarifications_safe = json.dumps(clarifications_raw)[1:-1]
+    project_safe = json.dumps(project)[1:-1]
+
+    filled = (
+        SPEC_TEMPLATE
+        .replace("{project}", project_safe)
+        .replace("{clarifications}", clarifications_safe)
+        .replace("<ISO timestamp>", datetime.utcnow().isoformat() + "Z")
     )
-    text = resp["choices"][0]["message"]["content"]
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end != -1:
-        try:
-            return json.loads(text[start:end+1])
-        except:
-            return {}
-    return {}
-
-# ====== Multi-Orchestrator ======
-def generate_description_spec(project: str, clarifications: str):
-    return call_orchestrator(
-        f"Project: {project}\nConstraints: {clarifications}",
-        "You are a project description orchestrator. Output strict JSON with project, description, type, target_users, tech_stack."
-    )
-
-def generate_contracts_spec(project: str, clarifications: str):
-    return call_orchestrator(
-        f"Project: {project}\nConstraints: {clarifications}",
-        "You are a contracts orchestrator. Define entities, APIs, functions, protocols, errors. Output strict JSON."
-    )
-
-def generate_files_spec(contracts: Dict[str, Any]):
-    return call_orchestrator(
-        f"Contracts: {json.dumps(contracts)}",
-        "You are a file layout orchestrator. Define files, their role, and which contracts they implement."
-    ).get("files", [])
-
-def generate_utilities_spec(files: Dict[str, Any]):
-    return call_orchestrator(
-        f"Files: {json.dumps(files)}",
-        "You are a utility orchestrator. Add meaningful descriptions for each file."
-    ).get("files", [])
-
-def generate_tests_spec(project: str, contracts: Dict[str, Any]):
-    return call_orchestrator(
-        f"Project: {project}\nContracts: {json.dumps(contracts)}",
-        "You are a testing orchestrator. Produce integration_tests and test_cases."
-    )
-def call_validator(role: str, spec: Dict[str, Any], project: str, clarifications: str) -> Dict[str, Any]:
-    """
-    Generic validator orchestrator.
-    role = 'contracts' | 'files' | 'utilities' | 'tests' | 'description'
-    Ensures the validator always returns either:
-      ✅ pass=True
-      ❌ pass=False with issues + suggestion
-    """
     try:
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
-            temperature=0,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"You are a {role} validator.\n"
-                        f"Check if the {role} spec is complete, consistent, and useful.\n"
-                        f"If valid → return JSON: {{'pass': true}}.\n"
-                        f"If invalid → return JSON: {{'pass': false, 'issues': [...], 'suggestion': '...'}}.\n"
-                        f"Never return empty or invalid JSON. Always explain why if failing."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps({
-                        "project": project,
-                        "clarifications": clarifications,
-                        "spec": spec
-                    })
-                }
-            ]
+            temperature=0.25,
+            messages=[{"role": "system", "content": SPEC_SYSTEM}, {"role": "user", "content": filled}]
         )
+        raw = resp["choices"][0]["message"]["content"]
+        spec = _extract_json_strict(raw)
 
-        text = resp["choices"][0]["message"]["content"]
-        start, end = text.find("{"), text.rfind("}")
-        if start != -1 and end != -1:
-            try:
-                parsed = json.loads(text[start:end+1])
-                # Guarantee structure
-                if parsed.get("pass") is True:
-                    return {"pass": True, "issues": [], "suggestion": ""}
-                else:
-                    return {
-                        "pass": False,
-                        "issues": parsed.get("issues", ["Unspecified issues"]),
-                        "suggestion": parsed.get("suggestion", "No suggestion provided")
-                    }
-            except:
-                return {"pass": False, "issues": ["Validator returned invalid JSON"], "suggestion": "Retry with stricter format"}
-        return {"pass": False, "issues": ["Validator returned no JSON"], "suggestion": "Retry with stricter format"}
+        for attempt in range(3):
+            if spec:
+                break
+            retry_prompt = (
+                f"Attempt {attempt+1}: The previous output was not valid JSON. "
+                "Output the SAME specification again as STRICT JSON only, no commentary, no markdown."
+            )
+            resp = openai.ChatCompletion.create(
+                model="gpt-4o-mini",
+                temperature=0.25,
+                messages=[{"role": "system", "content": SPEC_SYSTEM}, {"role": "user", "content": retry_prompt}]
+            )
+            raw = resp["choices"][0]["message"]["content"]
+            spec = _extract_json_strict(raw)
 
+        if not spec:
+            raise ValueError("❌ Failed to parse JSON spec after 3 retries")
+
+        spec = enforce_constraints(spec, clarifications_raw)
+        spec = boost_spec_depth(spec)
+        spec["_agent_role_prefix"] = {
+            "generator": (
+                "You are the **world’s most elite coding agent**. "
+                "Deliver FINAL, PRODUCTION-READY code in one pass. "
+                "Follow the spec exactly, resolve every requirement, "
+                "and guarantee compatibility with all other files."
+            ),
+            "tester": (
+                "You are a **file-specific practical reviewer**. "
+                "You ONLY review the file given to you — not others.\n\n"
+                "Rules:\n"
+                "1. Approve ONLY if the file is flawless and production-ready.\n"
+                "2. If issues exist, list **ALL problems in this file at once**, with exact corrections.\n"
+                " Example:\n"
+                " ❌ Issues in user_service.py:\n"
+                " - Missing import: add from typing import List.\n"
+                " - Function get_user missing return type annotation.\n"
+                " - Variable db is used but never defined.\n"
+                "3. Never stop at the first error — always surface *every* issue.\n"
+                "4. If no issues: output ONLY ✅ APPROVED."
+            )
+        }
+
+        project_state[project] = spec
+        save_state(project_state)
+        return spec
     except Exception as e:
-        return {"pass": False, "issues": [f"Validator crashed: {e}"], "suggestion": "Retry"}
+        raise RuntimeError(f"OpenAI API error: {e}")
 
-# ====== Flask Route ======
-# ====== Flask Route ======
+# ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 @cross_origin(origins=["https://thehustlerbot.com"])
 def orchestrator():
@@ -153,7 +344,6 @@ def orchestrator():
 
     session = user_sessions[user_id]
 
-    # ====== STAGE 1: Ask for project ======
     if session["stage"] == "project":
         if not project:
             return jsonify({"role": "assistant", "content": "What is your project idea?"})
@@ -161,76 +351,22 @@ def orchestrator():
         session["stage"] = "clarifications"
         return jsonify({"role": "assistant", "content": "Do you have any preferences, requirements, or constraints? (Optional)"})
 
-    # ====== STAGE 2: Ask for clarifications ======
     if session["stage"] == "clarifications":
-        session["clarifications"] = clarifications or project
-        session["stage"] = "done"
-
+        incoming_constraints = clarifications or project
+        if incoming_constraints.strip():
+            session["clarifications"] = incoming_constraints.strip()
+            session["stage"] = "done"
         try:
-            # --- Run orchestrators with validator + retries ---
-            def run_with_validation(name, generator, validator_role, *args, max_retries=3):
-                for attempt in range(max_retries):
-                    spec = generator(*args)
-                    result = call_validator(validator_role, spec, session["project"], session["clarifications"])
-
-                    if result["pass"]:
-                        return spec, []
-                    else:
-                        if attempt < max_retries - 1:
-                            # Only adjust clarifications if last arg is a string
-                            if isinstance(args[-1], str):
-                                args = (*args[:-1], args[-1] + " " + result["suggestion"])
-                            # Otherwise, retry with same args (dict inputs won’t support string concat)
-                        else:
-                            # Final attempt → return issues
-                            return spec, result["issues"]
-
-                return {}, ["Validator gave up after retries"]
-
-            # ---- Orchestrators ----
-            description_spec, desc_issues = run_with_validation(
-                "Description", generate_description_spec, "description", session["project"], session["clarifications"]
-            )
-            contracts_spec, contract_issues = run_with_validation(
-                "Contracts", generate_contracts_spec, "contracts", session["project"], session["clarifications"]
-            )
-            files_spec, file_issues = run_with_validation(
-                "Files", generate_files_spec, "files", contracts_spec
-            )
-            utilities_spec, util_issues = run_with_validation(
-                "Utilities", generate_utilities_spec, "utilities", files_spec
-            )
-            tests_spec, test_issues = run_with_validation(
-                "Tests", generate_tests_spec, "tests", session["project"], contracts_spec
-            )
-
-            # ---- Merge all specs ----
-            merged = merge_specs({
-                "description": description_spec,
-                "contracts": contracts_spec,
-                "files": files_spec,
-                "utilities": utilities_spec,
-                "tests": tests_spec
+            spec = generate_spec(session["project"], session["clarifications"])
+            agent_outputs = run_agents_for_spec(spec)
+            return jsonify({
+                "role": "assistant",
+                "status": "FULLY VERIFIED",
+                "spec": spec,
+                "agents_output": agent_outputs
             })
-
-            final = boost_spec_depth(merged)
-            project_state[session["project"]] = final
-            save_state(project_state)
-
-            # ---- Run Agents ----
-            agent_outputs = run_agents_for_spec(final)
-
-            return jsonify([
-                {"role": "orchestrator", "name": "Description", "content": description_spec, "issues": desc_issues},
-                {"role": "orchestrator", "name": "Contracts", "content": contracts_spec, "issues": contract_issues},
-                {"role": "orchestrator", "name": "Files", "content": files_spec, "issues": file_issues},
-                {"role": "orchestrator", "name": "Utilities", "content": utilities_spec, "issues": util_issues},
-                {"role": "orchestrator", "name": "Tests", "content": tests_spec, "issues": test_issues},
-                {"role": "assistant", "status": "MERGED_SPEC", "content": final, "agents_output": agent_outputs}
-            ])
-
         except Exception as e:
-            return jsonify({"role": "assistant", "content": f"❌ Failed to generate project: {e}"}), 500
+            return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
-    # ====== FALLBACK ======
+    user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})

@@ -1,5 +1,4 @@
 # routes/agents_pipeline.py
-
 from flask import Blueprint, request, jsonify
 import os
 import json
@@ -19,32 +18,26 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 def get_agent_files(spec):
     """Extract all unique file names from orchestrator spec."""
     files = set()
-
     for f in spec.get("interface_stub_files", []):
         if "file" in f:
             files.add(f["file"])
-
     for agent in spec.get("agent_blueprint", []):
         desc = agent.get("description", "")
         if "implementing" in desc:
             part = desc.split("implementing", 1)[1].strip().split(" ")[0]
             if "." in part:
                 files.add(part)
-
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             files.add(func["file"])
-
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             files.add(dep["file"])
         for d in dep.get("dependencies", []):
             files.add(d)
-
     for ref in spec.get("global_reference_index", []):
         if "file" in ref:
             files.add(ref["file"])
-
     return sorted(files)
 
 
@@ -149,16 +142,12 @@ def verify_tests(outputs, spec):
 # =====================================================
 # 2. Generator & Tester Agents (Relaxed Assessment)
 # =====================================================
-# =====================================================
-# 2. Generator & Tester Agents (Fixed for Code Output)
-# =====================================================
 
 MAX_RETRIES = 10
 _first_review_cache = {}
 
-
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
-    """Generator Agent: produces code in strict JSON format."""
+    """Generator Agent: produces code with feedback applied (if any)."""
     feedback_note = ""
     if review_feedback:
         feedback_note = (
@@ -167,16 +156,11 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
         )
 
     agent_prompt = f"""
-    You are coding {file_name}.
-    Follow the spec exactly and produce fully working, production-ready code.
-
-    Output STRICT JSON ONLY in this exact format:
-    {{
-        "file": "{file_name}",
-        "code": "<the full code here>"
-    }}
-
-    --- FULL SPEC: {json.dumps(full_spec, indent=2)}
+    You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code.
+    Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility).
+    Output ONLY the complete code for {file_name}.
+    ---
+    FULL SPEC: {json.dumps(full_spec, indent=2)}
     FILE-SPEC: {json.dumps(file_spec, indent=2)}
     {feedback_note}
     """
@@ -185,21 +169,13 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",  # you can swap to "gpt-5" if preferred
             temperature=0,
-            request_timeout=90,
+            request_timeout=60,
             messages=[
                 {"role": "system", "content": "You are a perfectionist coding agent focused on correctness and compatibility."},
                 {"role": "user", "content": agent_prompt}
             ]
         )
-
-        text = resp["choices"][0]["message"]["content"]
-        start, end = text.find("{"), text.rfind("}")
-        if start != -1 and end != -1:
-            parsed = json.loads(text[start:end+1])
-            if "file" in parsed and "code" in parsed:
-                return parsed
-        raise RuntimeError(f"Generator agent returned invalid JSON for {file_name}: {text}")
-
+        return resp.choices[0].message.content.strip()
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
 
@@ -210,12 +186,11 @@ def run_tester_agent(file_name, file_spec, full_spec, generated_code):
         return _first_review_cache[file_name]
 
     tester_prompt = f"""
-    Review {file_name}.
-    List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions.
-    Ignore minor style/docstring/naming issues.
+    Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests,
+    missing required functions. Ignore minor style/docstring/naming issues (just note them briefly if any).
     If code is usable and correct, output ONLY: ✅ APPROVED
-
-    --- FULL SPEC: {json.dumps(full_spec, indent=2)}
+    ---
+    FULL SPEC: {json.dumps(full_spec, indent=2)}
     FILE-SPEC: {json.dumps(file_spec, indent=2)}
     CODE: {generated_code}
     """
@@ -229,9 +204,15 @@ def run_tester_agent(file_name, file_spec, full_spec, generated_code):
             {"role": "user", "content": tester_prompt}
         ]
     )
-    review_text = resp["choices"][0]["message"]["content"]
+    review_text = resp.choices[0].message["content"]
     _first_review_cache[file_name] = review_text
     return review_text
+
+
+def is_hard_failure(review: str) -> bool:
+    """Check if review indicates a real blocking failure."""
+    critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
+    return any(term.lower() in review.lower() for term in critical_terms)
 
 
 def run_agents_for_spec(spec):
@@ -246,18 +227,17 @@ def run_agents_for_spec(spec):
         attempts = 0
 
         while not approved and attempts < MAX_RETRIES:
-            gen_result = run_generator_agent(file_name, file_spec, spec, review_feedback)
-            code = gen_result["code"]
+            code = run_generator_agent(file_name, file_spec, spec, review_feedback)
             review = run_tester_agent(file_name, file_spec, spec, code)
 
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
-                outputs.append(gen_result)  # already {"file": ..., "code": ...}
+                outputs.append({"file": file_name, "code": code})
                 print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
             else:
                 print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
                 review_feedback = review
-                attempts += 1
+            attempts += 1
 
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
@@ -274,6 +254,7 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
+
 
 # =====================================================
 # 4. Flask Endpoint
