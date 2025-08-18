@@ -16,17 +16,8 @@ load_dotenv()
 def create_app():
     app = Flask(__name__)
 
-    # ✅ Allow production + localhost (dev)
-    CORS(
-        app,
-        resources={r"/api/*": {"origins": [
-            "https://thehustlerbot.com",
-            "http://localhost:3000"
-        ]}},
-        supports_credentials=True,
-        methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization"]
-    )
+    # ✅ Explicitly allow your frontend domain
+    CORS(app, resources={r"/*": {"origins": "https://thehustlerbot.com"}})
 
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "supersecretkey")
     app.config['DATABASE_URL'] = os.getenv("DATABASE_URL")
@@ -45,6 +36,7 @@ def create_app():
     app.register_blueprint(agents_bp, url_prefix="/api/agents")
 
     return app
+
 
 if __name__ == "__main__":
     app = create_app()
