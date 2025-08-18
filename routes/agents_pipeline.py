@@ -56,30 +56,35 @@ def get_agent_files(spec):
 
     # === New spec style ===
     for f in spec.get("files", []):
-        if "file" in f:
+        if isinstance(f, dict) and "file" in f:
             files.add(f["file"])
 
     # Global reference index (backup source of file names)
     for ref in spec.get("global_reference_index", []):
-        if "file" in ref:
+        if isinstance(ref, dict) and "file" in ref:
             files.add(ref["file"])
 
     # Depth boost sometimes carries extra files
     for fname in spec.get("__depth_boost", {}).keys():
         files.add(fname)
 
-    # Legacy support (if old orchestrator spec sneaks in)
+    # Legacy support
     for f in spec.get("interface_stub_files", []):
-        if "file" in f:
+        if isinstance(f, dict) and "file" in f:
             files.add(f["file"])
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if "file" in func:
+        if isinstance(func, dict) and "file" in func:
             files.add(func["file"])
+
+    # Dependency graph (may be dict or str)
     for dep in spec.get("dependency_graph", []):
-        if "file" in dep:
-            files.add(dep["file"])
-        for d in dep.get("dependencies", []):
-            files.add(d)
+        if isinstance(dep, dict):
+            if "file" in dep:
+                files.add(dep["file"])
+            for d in dep.get("dependencies", []):
+                files.add(d)
+        elif isinstance(dep, str):
+            files.add(dep)
 
     return sorted(files)
 
