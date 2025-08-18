@@ -10,6 +10,66 @@ import openai
 
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# --- NEW: normalize spec shapes coming from the orchestrator ---
+import copy
+import re
+
+def _normalize_spec(spec: dict) -> dict:
+    """
+    Make orchestrator output consistent for downstream agents.
+    - files: list[dict{file:...}]
+    - dependency_graph: list[dict{file:..., dependencies: [...]}]
+    - agent_blueprint: list[dict{name:..., description:...}]
+    """
+    s = copy.deepcopy(spec)
+
+    # files
+    files = s.get("files", [])
+    norm_files = []
+    for f in files:
+        if isinstance(f, dict) and "file" in f:
+            norm_files.append(f)
+        elif isinstance(f, str):
+            norm_files.append({"file": f, "language": "text", "description": ""})
+    s["files"] = norm_files
+
+    # dependency_graph
+    dg = s.get("dependency_graph", [])
+    norm_dg = []
+    for dep in dg:
+        if isinstance(dep, dict):
+            file_name = dep.get("file")
+            deps = dep.get("dependencies", [])
+            if isinstance(deps, str):
+                deps = [deps]
+            norm_dg.append({"file": file_name, "dependencies": list(deps)})
+        elif isinstance(dep, str):
+            norm_dg.append({"file": dep, "dependencies": []})
+    s["dependency_graph"] = norm_dg
+
+    # agent_blueprint
+    ab = s.get("agent_blueprint", [])
+    norm_ab = []
+    for a in ab:
+        if isinstance(a, dict):
+            name = a.get("name")
+            desc = a.get("description", "")
+            if not name:
+                # try to synthesize from description
+                base = re.sub(r"\W+", "", (desc or "Agent"))
+                name = base[:1].upper() + base[1:] + "Agent"
+            norm_ab.append({"name": name, "description": desc})
+        elif isinstance(a, str):
+            base = re.sub(r"\W+", "", a) or "Agent"
+            name = base[:1].upper() + base[1:]  # avoid double "Agent"
+            if not name.lower().endswith("agent"):
+                name += "Agent"
+            norm_ab.append({"name": name, "description": a})
+    s["agent_blueprint"] = norm_ab
+
+    return s
+
 # --- helpers for clean agent outputs ---
 def _detect_language_from_filename(filename: str) -> str:
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
@@ -137,8 +197,6 @@ def extract_file_spec(spec, file_name):
 
     return file_spec
 
-
-
 def verify_imports(outputs):
     """Ensure generated code imports without syntax errors."""
     tmp_dir = tempfile.mkdtemp()
@@ -146,8 +204,9 @@ def verify_imports(outputs):
         for output in outputs:
             file_path = os.path.join(tmp_dir, output["file"])
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            code = output.get("content") or output.get("code") or ""
             with open(file_path, "w") as f:
-                f.write(output["code"])
+                f.write(code)
 
         for output in outputs:
             file_path = os.path.join(tmp_dir, output["file"])
@@ -169,8 +228,9 @@ def verify_tests(outputs, spec):
         for output in outputs:
             file_path = os.path.join(tmp_dir, output["file"])
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            code = output.get("content") or output.get("code") or ""
             with open(file_path, "w") as f:
-                f.write(output["code"])
+                f.write(code)
 
         for test in spec.get("integration_tests", []):
             test_path = os.path.join(tmp_dir, test["path"])
@@ -184,7 +244,6 @@ def verify_tests(outputs, spec):
     finally:
         shutil.rmtree(tmp_dir)
     return outputs
-
 
 # =====================================================
 # 2. Generator & Tester Agents (Relaxed Assessment)
@@ -264,23 +323,29 @@ def is_hard_failure(review: str) -> bool:
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
 
-
 def run_agents_for_spec(spec):
     """Runs generator + tester loop for each file until approved or retries exhausted."""
+    # ✅ Normalize once at the top
+    spec = _normalize_spec(spec)
+
     files = get_agent_files(spec)
     outputs = []
 
     # Map file -> agent name (best effort from blueprint descriptions)
     agent_map = {}
     for agent in spec.get("agent_blueprint", []):
-        desc = agent.get("description", "")
+        # after normalization, each is a dict
+        desc = agent.get("description", "") or ""
+        name = agent.get("name") or "Agent"
+
         matched_file = None
         for f in spec.get("files", []):
-            if f.get("file") and f["file"] in desc:
-                matched_file = f["file"]
+            fname = f.get("file") if isinstance(f, dict) else f
+            if fname and fname in desc:
+                matched_file = fname
                 break
         if matched_file:
-            agent_map[matched_file] = agent.get("name", f"AgentFor-{matched_file}")
+            agent_map[matched_file] = name
 
     for file_name in files:
         file_spec = extract_file_spec(spec, file_name)
@@ -295,12 +360,11 @@ def run_agents_for_spec(spec):
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
                 outputs.append({
-                    # >>> important: label as AGENT and include file
                     "role": "agent",
                     "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
                     "file": file_name,
                     "language": _detect_language_from_filename(file_name),
-                    "content": code  # raw code, no fences
+                    "content": code  # keep using "content"
                 })
                 print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
             else:
@@ -311,7 +375,7 @@ def run_agents_for_spec(spec):
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
 
-    # --- Final validation phase (unchanged) ---
+    # --- Final validation phase (tolerant) ---
     try:
         verify_imports(outputs)
     except Exception as e:
@@ -323,6 +387,7 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
+
 
 
 # =====================================================
