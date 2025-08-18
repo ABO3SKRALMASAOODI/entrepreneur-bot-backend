@@ -47,19 +47,31 @@ def _strip_code_fences(text: str) -> str:
 # =====================================================
 # 1. Utility Functions
 # =====================================================
-
 def get_agent_files(spec):
-    """Extract all unique file names from orchestrator spec."""
+    """
+    Collect all unique file names from the orchestrator spec.
+    Compatible with new pipeline JSON structure.
+    """
     files = set()
+
+    # === New spec style ===
+    for f in spec.get("files", []):
+        if "file" in f:
+            files.add(f["file"])
+
+    # Global reference index (backup source of file names)
+    for ref in spec.get("global_reference_index", []):
+        if "file" in ref:
+            files.add(ref["file"])
+
+    # Depth boost sometimes carries extra files
+    for fname in spec.get("__depth_boost", {}).keys():
+        files.add(fname)
+
+    # Legacy support (if old orchestrator spec sneaks in)
     for f in spec.get("interface_stub_files", []):
         if "file" in f:
             files.add(f["file"])
-    for agent in spec.get("agent_blueprint", []):
-        desc = agent.get("description", "")
-        if "implementing" in desc:
-            part = desc.split("implementing", 1)[1].strip().split(" ")[0]
-            if "." in part:
-                files.add(part)
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             files.add(func["file"])
@@ -68,61 +80,58 @@ def get_agent_files(spec):
             files.add(dep["file"])
         for d in dep.get("dependencies", []):
             files.add(d)
-    for ref in spec.get("global_reference_index", []):
-        if "file" in ref:
-            files.add(ref["file"])
+
     return sorted(files)
 
-
 def extract_file_spec(spec, file_name):
-    """Extract only the parts of the spec relevant to a single file."""
+    """
+    Build the specification for a single file so the agent knows exactly what to implement.
+    Compatible with new orchestrator pipeline.
+    """
     file_spec = {
-        "file_name": file_name,
+        "file": file_name,
         "functions": [],
-        "db_tables": [],
-        "api_endpoints": [],
+        "apis": [],
         "protocols": [],
-        "shared_schemas": spec.get("shared_schemas"),
-        "config_and_constants": None,
-        "compatibility_notes": []
+        "entities": [],
+        "errors": [],
+        "contracts": {},
     }
 
-    for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if func.get("file") == file_name:
+    contracts = spec.get("contracts", {})
+
+    # === Functions ===
+    for func in contracts.get("functions", []):
+        if file_name in func.get("implements", []):
             file_spec["functions"].append(func)
 
-    for table in spec.get("db_schema", []):
-        if "db" in file_name.lower() or any(
-            table["table"] in json.dumps(func) for func in file_spec["functions"]
-        ):
-            if table not in file_spec["db_tables"]:
-                file_spec["db_tables"].append(table)
+    # === APIs ===
+    for api in contracts.get("apis", []):
+        if file_name in api.get("implements", []):
+            file_spec["apis"].append(api)
 
-    for api in spec.get("api_contracts", []):
-        for func in file_spec["functions"]:
-            if func.get("name") in json.dumps(api):
-                file_spec["api_endpoints"].append(api)
-
-    for proto in spec.get("inter_agent_protocols", []):
-        if file_name in json.dumps(proto):
+    # === Protocols ===
+    for proto in contracts.get("protocols", []):
+        if file_name in proto.get("implements", []):
             file_spec["protocols"].append(proto)
-        else:
-            for func in file_spec["functions"]:
-                if func.get("name") in json.dumps(proto):
-                    file_spec["protocols"].append(proto)
-                    break
 
-    for f in spec.get("interface_stub_files", []):
-        if f["file"] == "config.py":
-            file_spec["config_and_constants"] = f
+    # === Entities ===
+    for ent in contracts.get("entities", []):
+        if file_name in ent.get("implements", []):
+            file_spec["entities"].append(ent)
 
-    depth_info = spec.get("__depth_boost", {}).get(file_name, {})
-    file_spec["compatibility_notes"].extend(depth_info.get("notes", []))
-    file_spec["db_tables"].extend(depth_info.get("db", []))
-    file_spec["api_endpoints"].extend(depth_info.get("api", []))
-    file_spec["protocols"].extend(depth_info.get("protocols", []))
+    # === Errors ===
+    for err in contracts.get("errors", []):
+        if file_name in err.get("implements", []):
+            file_spec["errors"].append(err)
+
+    # === Depth boost notes/contracts ===
+    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
+        file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
+        file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
 
     return file_spec
+
 
 
 def verify_imports(outputs):
