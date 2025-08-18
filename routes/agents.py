@@ -117,36 +117,76 @@ CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
 # ===== Universal Orchestrator Instructions =====
 # ===== Orchestrator Pipeline Stages =====
+STRICT_JSON_RULES = """
+⚠️ RULES – You are a structured specification engine.
+- You MUST output VALID JSON ONLY.
+- DO NOT add explanations, notes, comments, Markdown, or prose.
+- DO NOT include code fences (```).
+- Output MUST parse with Python's json.loads() without modification.
+- The top-level output MUST exactly match the required schema.
+- If unsure, make reasonable assumptions but always return syntactically valid JSON.
+"""
+
 ORCHESTRATOR_STAGES = {
-    "describer": "You are Orchestrator 0 (Project Describer). "
-                 "Your ONLY job is to restate the project clearly, "
-                 "define user story, target users, and suggest a tech stack. "
-                 "STRICT JSON keys: project_summary, user_story, suggested_stack.",
+    "describer": f"""
+You are Orchestrator 0 (Project Describer).
+Your job: restate the project clearly, define the user story, target users, and suggest a tech stack.
+Expected JSON keys: project_summary, user_story, suggested_stack.
+{STRICT_JSON_RULES}
+""",
 
-    "scoper": "You are Orchestrator 1 (Scoper). "
-              "Input: project description. "
-              "Output: full list of files needed. "
-              "Each file: file, category, description. "
-              "STRICT JSON array of file objects only.",
+    "scoper": f"""
+You are Orchestrator 1 (Scoper).
+Input: project description.
+Output: STRICT JSON array of files.
+Each file object MUST contain: file, category, description.
+No prose or explanations outside the JSON array.
+{STRICT_JSON_RULES}
+""",
 
-    "contractor": "You are Orchestrator 2 (Contractor). "
-                  "Input: project + files. "
-                  "Output: contracts: entities, apis, functions, protocols, errors. "
-                  "Every contract must be complete with types, examples, conditions.",
+    "contractor": f"""
+You are Orchestrator 2 (Contractor).
+Input: project + files.
+Output: JSON object with key "contracts".
+Inside "contracts": entities, apis, functions, protocols, errors.
+Each item MUST include types, examples, and conditions.
+{STRICT_JSON_RULES}
+""",
 
-    "architect": "You are Orchestrator 3 (Architect). "
-                 "Input: project + files + contracts. "
-                 "Output: assign contracts to files, agent_blueprint, dependency_graph, execution_plan, global_reference_index.",
+    "architect": f"""
+You are Orchestrator 3 (Architect).
+Input: project + files + contracts.
+Output: JSON object with keys:
+- file_contract_map (assign contracts to files)
+- agent_blueprint
+- dependency_graph
+- execution_plan
+- global_reference_index
+{STRICT_JSON_RULES}
+""",
 
-    "booster": "You are Orchestrator 4 (Detail Booster). "
-               "Input: enriched spec. "
-               "Output: add __depth_boost for each file with notes (SOLID, logging, testing, etc.).",
+    "booster": f"""
+You are Orchestrator 4 (Detail Booster).
+Input: enriched spec.
+Output: the SAME spec with an added "__depth_boost" key.
+For each file, add production-grade notes (SOLID, logging, testing, etc.).
+{STRICT_JSON_RULES}
+""",
 
-    "verifier": "You are Orchestrator 5 (Verifier). "
-                "Input: boosted spec. "
-                "Output: FINAL VERIFIED JSON. Ensure every API has a backend file, "
-                "every file has agent, every function has test, errors map to http_status."
+    "verifier": f"""
+You are Orchestrator 5 (Verifier).
+Input: boosted spec.
+Output: FINAL VERIFIED JSON object.
+You MUST check and enforce:
+- Every API has a backend file.
+- Every file has an agent in agent_blueprint.
+- Every function has a test case.
+- Every error maps to an http_status.
+Return ONLY the final JSON spec, nothing else.
+{STRICT_JSON_RULES}
+"""
 }
+
 
 # ===== Spec Template =====
 SPEC_TEMPLATE = """ Project: {project}
