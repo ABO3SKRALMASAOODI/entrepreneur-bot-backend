@@ -400,11 +400,6 @@ def boost_spec_depth(spec: dict) -> dict:
 
 # ===== Orchestrator Pipeline =====
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
-    """
-    Runs all orchestrator stages in sequence.
-    Returns either a full verified pipeline OR an error object with debug info.
-    """
-
     results = {}
 
     # Stage 0 - Describer
@@ -419,14 +414,19 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     if files.get("error"):
         return {"status": "failed", "stage": "scoper", "detail": files["detail"], "raw": files.get("raw_output")}
 
+    # Normalize files into dict for contractor
+    files_dict = {"files": files["spec"]} if isinstance(files["spec"], list) else files["spec"]
+
     # Stage 2 - Contractor
-    contracts = run_orchestrator("contractor", {**desc["spec"], **files["spec"]})
+    contractor_input = {**desc["spec"], **files_dict}
+    contracts = run_orchestrator("contractor", contractor_input)
     results["contractor"] = contracts
     if contracts.get("error"):
         return {"status": "failed", "stage": "contractor", "detail": contracts["detail"], "raw": contracts.get("raw_output")}
 
     # Stage 3 - Architect
-    arch = run_orchestrator("architect", {**desc["spec"], **files["spec"], **contracts["spec"]})
+    arch_input = {**desc["spec"], **files_dict, **contracts["spec"]}
+    arch = run_orchestrator("architect", arch_input)
     results["architect"] = arch
     if arch.get("error"):
         return {"status": "failed", "stage": "architect", "detail": arch["detail"], "raw": arch.get("raw_output")}
@@ -452,6 +452,7 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
         "stages": results,
         "final_spec": final_spec["spec"]
     }
+
 
 # ===== Orchestrator Route =====
 # ===== Orchestrator Route =====
