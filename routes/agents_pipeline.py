@@ -10,6 +10,39 @@ import openai
 
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+# --- helpers for clean agent outputs ---
+def _detect_language_from_filename(filename: str) -> str:
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    return {
+        "py": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "jsx": "javascript",
+        "tsx": "typescript",
+        "json": "json",
+        "css": "css",
+        "html": "html",
+        "md": "markdown",
+        "txt": "text",
+        "yml": "yaml",
+        "yaml": "yaml",
+    }.get(ext, "text")
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove leading/trailing triple-backtick fences if the model included them."""
+    if text is None:
+        return ""
+    s = text.strip()
+    # Remove starting ```lang or ```
+    if s.startswith("```"):
+        # drop first line
+        s = s.split("\n", 1)
+        s = s[1] if len(s) > 1 else ""
+    # Remove trailing ```
+    if s.endswith("```"):
+        s = s[: -3].rstrip()
+    return s
 
 # =====================================================
 # 1. Utility Functions
@@ -175,7 +208,9 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
                 {"role": "user", "content": agent_prompt}
             ]
         )
-        return resp.choices[0].message.content.strip()
+               raw = resp.choices[0].message.content or ""
+        return _strip_code_fences(raw)
+
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
 
@@ -220,6 +255,18 @@ def run_agents_for_spec(spec):
     files = get_agent_files(spec)
     outputs = []
 
+    # Map file -> agent name (best effort from blueprint descriptions)
+    agent_map = {}
+    for agent in spec.get("agent_blueprint", []):
+        desc = agent.get("description", "")
+        matched_file = None
+        for f in spec.get("files", []):
+            if f.get("file") and f["file"] in desc:
+                matched_file = f["file"]
+                break
+        if matched_file:
+            agent_map[matched_file] = agent.get("name", f"AgentFor-{matched_file}")
+
     for file_name in files:
         file_spec = extract_file_spec(spec, file_name)
         review_feedback = None
@@ -232,7 +279,14 @@ def run_agents_for_spec(spec):
 
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
-                outputs.append({"file": file_name, "code": code})
+                outputs.append({
+                    # >>> important: label as AGENT and include file
+                    "role": "agent",
+                    "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
+                    "file": file_name,
+                    "language": _detect_language_from_filename(file_name),
+                    "content": code  # raw code, no fences
+                })
                 print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
             else:
                 print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
@@ -242,7 +296,7 @@ def run_agents_for_spec(spec):
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
 
-    # --- Final validation phase ---
+    # --- Final validation phase (unchanged) ---
     try:
         verify_imports(outputs)
     except Exception as e:
