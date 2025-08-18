@@ -76,7 +76,6 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
 
         if not spec:
             raise ValueError(f"Stage {stage} failed to produce valid JSON")
-
         return spec
     except Exception as e:
         raise RuntimeError(f"Orchestrator stage {stage} failed: {e}")
@@ -114,7 +113,6 @@ class ServiceRequest:
     metadata: Dict[str, Any]
     payload: Dict[str, Any]
 """
-
 CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
 # ===== Universal Orchestrator Instructions =====
@@ -151,83 +149,83 @@ ORCHESTRATOR_STAGES = {
 }
 
 # ===== Spec Template =====
-SPEC_TEMPLATE = """ 
-Project: {project}
-Preferences/Requirements: {clarifications}
+SPEC_TEMPLATE = """
+ Project: {project}
+ Preferences/Requirements: {clarifications}
 
-Produce STRICT JSON with every section fully populated.
+ Produce STRICT JSON with every section fully populated.
 
-{
-  "version": "12.0",
-  "generated_at": "<ISO timestamp>",
-  "project": "<short name>",
-  "description": "<comprehensive summary including: {clarifications}>",
-  "project_type": "<auto-detected type>",
-  "target_users": ["<primary user groups>"],
-  "tech_stack": {
-    "language": "<main language>",
-    "framework": "<framework if any>",
-    "database": "<database if any>"
-  },
-  "contracts": {
-    "entities": [
-      {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"}
-    ],
-    "apis": [
-      {
-        "name": "<APIName>",
-        "endpoint": "<url>",
-        "method": "<HTTP method or protocol>",
-        "request_schema": {"field": "type"},
-        "response_schema": {"field": "type"},
-        "example_request": {"field": "value"},
-        "example_response": {"field": "value"}
-      }
-    ],
-    "functions": [
-      {
-        "name": "<func_name>",
-        "description": "<what it does>",
-        "params": {"<param>": "<type>"},
-        "return_type": "<type>",
-        "errors": ["<error_code>"],
-        "steps": ["Step 1: ...", "Step 2: ..."],
-        "example_input": {"field": "value"},
-        "example_output": {"field": "value"}
-      }
-    ],
-    "protocols": [
-      {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]}
-    ],
-    "errors": [
-      {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>}
-    ]
-  },
-  "files": [
-    {
-      "file": "<path/filename>",
-      "language": "<language>",
-      "description": "<role in project>",
-      "implements": ["<contracts: apis, functions, protocols, entities>"],
-      "dependencies": ["<other files>"]
-    }
-  ],
-  "dependency_graph": [
-    {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}
-  ],
-  "execution_plan": [
-    {"step": 1, "description": "<implementation step>"}
-  ],
-  "global_reference_index": [
-    {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]}
-  ],
-  "integration_tests": [
-    {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"}
-  ],
-  "test_cases": [
-    {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}
-  ]
-}
+ {
+   "version": "12.0",
+   "generated_at": "<ISO timestamp>",
+   "project": "<short name>",
+   "description": "<comprehensive summary including: {clarifications}>",
+   "project_type": "<auto-detected type>",
+   "target_users": ["<primary user groups>"],
+   "tech_stack": {
+     "language": "<main language>",
+     "framework": "<framework if any>",
+     "database": "<database if any>"
+   },
+   "contracts": {
+     "entities": [
+       {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"}
+     ],
+     "apis": [
+       {
+         "name": "<APIName>",
+         "endpoint": "<url>",
+         "method": "<HTTP method or protocol>",
+         "request_schema": {"field": "type"},
+         "response_schema": {"field": "type"},
+         "example_request": {"field": "value"},
+         "example_response": {"field": "value"}
+       }
+     ],
+     "functions": [
+       {
+         "name": "<func_name>",
+         "description": "<what it does>",
+         "params": {"<param>": "<type>"},
+         "return_type": "<type>",
+         "errors": ["<error_code>"],
+         "steps": ["Step 1: ...", "Step 2: ..."],
+         "example_input": {"field": "value"},
+         "example_output": {"field": "value"}
+       }
+     ],
+     "protocols": [
+       {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]}
+     ],
+     "errors": [
+       {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>}
+     ]
+   },
+   "files": [
+     {
+       "file": "<path/filename>",
+       "language": "<language>",
+       "description": "<role in project>",
+       "implements": ["<contracts: apis, functions, protocols, entities>"],
+       "dependencies": ["<other files>"]
+     }
+   ],
+   "dependency_graph": [
+     {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}
+   ],
+   "execution_plan": [
+     {"step": 1, "description": "<implementation step>"}
+   ],
+   "global_reference_index": [
+     {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]}
+   ],
+   "integration_tests": [
+     {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"}
+   ],
+   "test_cases": [
+     {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}
+   ]
+ }
 """
 
 # ===== Constraint Enforcement =====
@@ -261,6 +259,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 
     all_files = {f["file"] for f in spec.get("files", []) if "file" in f}
     expanded_files = all_files
+
     spec["agent_blueprint"] = []
     for file_name in sorted(expanded_files):
         base_name = file_name.rsplit(".", 1)[0]
@@ -326,7 +325,6 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
 
     project_state[project] = final_spec
     save_state(project_state)
-
     return final_spec
 
 # ===== Orchestrator Route =====
