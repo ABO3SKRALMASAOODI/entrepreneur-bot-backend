@@ -10,6 +10,7 @@ import openai
 
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
 # --- helpers for clean agent outputs ---
 def _detect_language_from_filename(filename: str) -> str:
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
@@ -28,18 +29,17 @@ def _detect_language_from_filename(filename: str) -> str:
         "yaml": "yaml",
     }.get(ext, "text")
 
-
 def _strip_code_fences(text: str) -> str:
     """Remove leading/trailing triple-backtick fences if the model included them."""
     if text is None:
         return ""
     s = text.strip()
-    # Remove starting ```lang or ```
+    # Remove starting
     if s.startswith("```"):
         # drop first line
         s = s.split("\n", 1)
         s = s[1] if len(s) > 1 else ""
-    # Remove trailing ```
+    # Remove trailing
     if s.endswith("```"):
         s = s[: -3].rstrip()
     return s
@@ -56,35 +56,30 @@ def get_agent_files(spec):
 
     # === New spec style ===
     for f in spec.get("files", []):
-        if isinstance(f, dict) and "file" in f:
+        if "file" in f:
             files.add(f["file"])
 
     # Global reference index (backup source of file names)
     for ref in spec.get("global_reference_index", []):
-        if isinstance(ref, dict) and "file" in ref:
+        if "file" in ref:
             files.add(ref["file"])
 
     # Depth boost sometimes carries extra files
     for fname in spec.get("__depth_boost", {}).keys():
         files.add(fname)
 
-    # Legacy support
+    # Legacy support (if old orchestrator spec sneaks in)
     for f in spec.get("interface_stub_files", []):
-        if isinstance(f, dict) and "file" in f:
+        if "file" in f:
             files.add(f["file"])
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
-        if isinstance(func, dict) and "file" in func:
+        if "file" in func:
             files.add(func["file"])
-
-    # Dependency graph (may be dict or str)
     for dep in spec.get("dependency_graph", []):
-        if isinstance(dep, dict):
-            if "file" in dep:
-                files.add(dep["file"])
-            for d in dep.get("dependencies", []):
-                files.add(d)
-        elif isinstance(dep, str):
-            files.add(dep)
+        if "file" in dep:
+            files.add(dep["file"])
+        for d in dep.get("dependencies", []):
+            files.add(d)
 
     return sorted(files)
 
@@ -264,29 +259,24 @@ def is_hard_failure(review: str) -> bool:
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
 
+
 def run_agents_for_spec(spec):
     """Runs generator + tester loop for each file until approved or retries exhausted."""
     files = get_agent_files(spec)
     outputs = []
 
-    # --- Defensive agent map building ---
+    # Map file -> agent name (best effort from blueprint descriptions)
     agent_map = {}
     for agent in spec.get("agent_blueprint", []):
-        if isinstance(agent, dict):  # ✅ Only dicts are valid
-            desc = agent.get("description", "")
-            matched_file = None
-            for f in spec.get("files", []):
-                if f.get("file") and f["file"] in desc:
-                    matched_file = f["file"]
-                    break
-            if matched_file:
-                agent_map[matched_file] = agent.get("name", f"AgentFor-{matched_file}")
-        else:
-            # fallback: string-based agent entry
-            agent_name = str(agent)
-            agent_map[agent_name] = f"AgentFor-{agent_name}"
+        desc = agent.get("description", "")
+        matched_file = None
+        for f in spec.get("files", []):
+            if f.get("file") and f["file"] in desc:
+                matched_file = f["file"]
+                break
+        if matched_file:
+            agent_map[matched_file] = agent.get("name", f"AgentFor-{matched_file}")
 
-    # --- Main generation loop ---
     for file_name in files:
         file_spec = extract_file_spec(spec, file_name)
         review_feedback = None
@@ -300,11 +290,12 @@ def run_agents_for_spec(spec):
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
                 outputs.append({
+                    # >>> important: label as AGENT and include file
                     "role": "agent",
                     "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
                     "file": file_name,
                     "language": _detect_language_from_filename(file_name),
-                    "content": code
+                    "content": code  # raw code, no fences
                 })
                 print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
             else:
@@ -315,6 +306,7 @@ def run_agents_for_spec(spec):
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
 
+    # --- Final validation phase (unchanged) ---
     try:
         verify_imports(outputs)
     except Exception as e:
