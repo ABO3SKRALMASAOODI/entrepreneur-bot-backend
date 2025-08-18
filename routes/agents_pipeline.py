@@ -200,20 +200,21 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
 
     try:
         resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # you can swap to "gpt-5" if preferred
+            model="gpt-4o-mini",  # or "gpt-5" if you prefer
             temperature=0,
             request_timeout=60,
             messages=[
-                {"role": "system", "content": "You are a perfectionist coding agent focused on correctness and compatibility."},
+                {
+                    "role": "system",
+                    "content": "You are a perfectionist coding agent focused on correctness and compatibility."
+                },
                 {"role": "user", "content": agent_prompt}
             ]
         )
-               raw = resp.choices[0].message.content or ""
+        raw = resp.choices[0].message.content or ""
         return _strip_code_fences(raw)
-
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
-
 
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
     """Tester Agent: relaxed review — only blocks on hard errors."""
