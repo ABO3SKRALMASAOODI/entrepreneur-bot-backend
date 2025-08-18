@@ -31,21 +31,61 @@ project_state = load_state()
 user_sessions = {}
 
 # ===== Strict JSON Extractor =====
+# ===== Robust JSON Extractor =====
 def _extract_json_strict(text: str):
+    """
+    Extract valid JSON (object or array) from LLM output.
+    Includes auto-repair for common mistakes instead of failing silently.
+    """
     if not text:
         return None
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
-        return None
+
+    s = text.strip()
+
+    # Strip Markdown fences
+    if s.startswith("```"):
+        parts = s.split("\n", 1)
+        s = parts[1] if len(parts) > 1 else ""
+    if s.endswith("```"):
+        s = s[:-3].rstrip()
+
+    # Direct attempt
     try:
-        return json.loads(text[start:end+1])
-    except json.JSONDecodeError:
+        return json.loads(s)
+    except Exception:
+        pass
+
+    # Slice between first { or [ and last } or ]
+    start_braces = min([i for i in [s.find("{"), s.find("[")] if i != -1], default=-1)
+    end_braces = max([s.rfind("}"), s.rfind("]")])
+    if start_braces != -1 and end_braces != -1:
+        candidate = s[start_braces:end_braces + 1]
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+
+    # Repair common issues: trailing commas, single quotes
+    repaired = re.sub(r",\s*([\]}])", r"\1", s)
+    repaired = repaired.replace("'", "\"")
+    try:
+        return json.loads(repaired)
+    except Exception as e:
+        print(f"❌ JSON extraction failed.\nRaw:\n{text}\nError: {e}")
         return None
+
+
+# ===== Orchestrator Stage Runner =====
 def run_orchestrator(stage: str, input_data: dict) -> dict:
-    """Runs a single orchestrator stage with strict JSON extraction & retries."""
+    """
+    Run a single orchestrator stage with strict JSON enforcement and safe fallbacks.
+    Returns a dict with either valid spec OR an error structure.
+    """
     system_msg = ORCHESTRATOR_STAGES[stage]
+    raw = None
+
     try:
+        # First attempt
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             temperature=0.2,
@@ -58,10 +98,10 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
         spec = _extract_json_strict(raw)
 
         # Retry if invalid JSON
-        for attempt in range(2):
-            if spec:
-                break
-            retry_msg = "⚠️ Output was not valid JSON. Output the SAME specification again as STRICT JSON only."
+        attempt = 0
+        while not spec and attempt < 2:
+            attempt += 1
+            retry_msg = "⚠️ Your last output was invalid JSON. Return the SAME specification again as STRICT JSON only."
             resp = openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 temperature=0.2,
@@ -74,11 +114,23 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
             spec = _extract_json_strict(raw)
 
         if not spec:
-            raise ValueError(f"Stage {stage} failed to produce valid JSON")
+            return {
+                "error": True,
+                "stage": stage,
+                "detail": f"Stage {stage} failed to produce valid JSON",
+                "raw_output": raw
+            }
 
-        return spec
+        return {"error": False, "spec": spec}
+
     except Exception as e:
-        raise RuntimeError(f"Orchestrator stage {stage} failed: {e}")
+        return {
+            "error": True,
+            "stage": stage,
+            "detail": str(e),
+            "raw_output": raw
+        }
+
 
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
@@ -345,41 +397,63 @@ def boost_spec_depth(spec: dict) -> dict:
     return spec
 
 # ===== Spec Generator =====
-def orchestrator_pipeline(project: str, clarifications: str) -> dict:
-    """Runs all orchestrators and returns every stage’s output, plus the final verified spec."""
 
-    # Stage 0 - Project Describer
+# ===== Orchestrator Pipeline =====
+def orchestrator_pipeline(project: str, clarifications: str) -> dict:
+    """
+    Runs all orchestrator stages in sequence.
+    Returns either a full verified pipeline OR an error object with debug info.
+    """
+
+    results = {}
+
+    # Stage 0 - Describer
     desc = run_orchestrator("describer", {"project": project, "clarifications": clarifications})
+    results["describer"] = desc
+    if desc.get("error"):
+        return {"status": "failed", "stage": "describer", "detail": desc["detail"], "raw": desc.get("raw_output")}
 
     # Stage 1 - Scoper
-    files = run_orchestrator("scoper", desc)
+    files = run_orchestrator("scoper", desc["spec"])
+    results["scoper"] = files
+    if files.get("error"):
+        return {"status": "failed", "stage": "scoper", "detail": files["detail"], "raw": files.get("raw_output")}
 
     # Stage 2 - Contractor
-    contracts = run_orchestrator("contractor", {**desc, **files})
+    contracts = run_orchestrator("contractor", {**desc["spec"], **files["spec"]})
+    results["contractor"] = contracts
+    if contracts.get("error"):
+        return {"status": "failed", "stage": "contractor", "detail": contracts["detail"], "raw": contracts.get("raw_output")}
 
     # Stage 3 - Architect
-    arch = run_orchestrator("architect", {**desc, **files, **contracts})
+    arch = run_orchestrator("architect", {**desc["spec"], **files["spec"], **contracts["spec"]})
+    results["architect"] = arch
+    if arch.get("error"):
+        return {"status": "failed", "stage": "architect", "detail": arch["detail"], "raw": arch.get("raw_output")}
 
     # Stage 4 - Booster
-    boosted = run_orchestrator("booster", arch)
+    boosted = run_orchestrator("booster", arch["spec"])
+    results["booster"] = boosted
+    if boosted.get("error"):
+        return {"status": "failed", "stage": "booster", "detail": boosted["detail"], "raw": boosted.get("raw_output")}
 
     # Stage 5 - Verifier
-    final_spec = run_orchestrator("verifier", boosted)
+    final_spec = run_orchestrator("verifier", boosted["spec"])
+    results["verifier"] = final_spec
+    if final_spec.get("error"):
+        return {"status": "failed", "stage": "verifier", "detail": final_spec["detail"], "raw": final_spec.get("raw_output")}
 
-    # Save project state (optional, only keep final)
-    project_state[project] = final_spec
+    # Save verified spec
+    project_state[project] = final_spec["spec"]
     save_state(project_state)
 
-    # Return all stages for debugging/review
     return {
-        "describer": desc,
-        "scoper": files,
-        "contractor": contracts,
-        "architect": arch,
-        "booster": boosted,
-        "verifier": final_spec
+        "status": "success",
+        "stages": results,
+        "final_spec": final_spec["spec"]
     }
 
+# ===== Orchestrator Route =====
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 @cross_origin(origins=["https://thehustlerbot.com"])
@@ -423,32 +497,35 @@ def orchestrator():
             session["clarifications"] = incoming_constraints.strip()
             session["stage"] = "done"
 
-        try:
-            # Run full orchestrator pipeline
-            stage_outputs = orchestrator_pipeline(
-                session["project"],
-                session["clarifications"]
-            )
+        # Run full orchestrator pipeline
+        stage_outputs = orchestrator_pipeline(
+            session["project"],
+            session["clarifications"]
+        )
 
-            # Use the verifier stage as the final spec
-            final_spec = stage_outputs.get("verifier", {})
-
-            # Run generator + tester agents on the final spec
-            agent_outputs = run_agents_for_spec(final_spec)
-
+        # If pipeline failed, return structured error (no 500s)
+        if stage_outputs.get("status") == "failed":
             return jsonify({
                 "role": "assistant",
-                "status": "FULLY VERIFIED",
-                "stages": stage_outputs,   # all intermediate orchestrator outputs
-                "final_spec": final_spec,  # explicitly the verifier stage
-                "agents_output": agent_outputs
-            })
+                "status": "FAILED",
+                "stage": stage_outputs["stage"],
+                "detail": stage_outputs["detail"],
+                "raw_output": stage_outputs.get("raw")
+            }), 400
 
-        except Exception as e:
-            return jsonify({
-                "role": "assistant",
-                "content": f"❌ Failed to generate verified project: {e}"
-            }), 500
+        # Otherwise, use the final spec
+        final_spec = stage_outputs.get("final_spec", {})
+
+        # Run generator + tester agents on the final spec
+        agent_outputs = run_agents_for_spec(final_spec)
+
+        return jsonify({
+            "role": "assistant",
+            "status": "FULLY VERIFIED",
+            "stages": stage_outputs["stages"],   # all intermediate orchestrator outputs
+            "final_spec": final_spec,            # explicitly the verified spec
+            "agents_output": agent_outputs
+        })
 
     # Reset session if flow breaks
     user_sessions[user_id] = {
