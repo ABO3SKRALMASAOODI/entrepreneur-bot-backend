@@ -266,8 +266,37 @@ def is_hard_failure(review: str) -> bool:
     return any(term.lower() in review.lower() for term in critical_terms)
 
 
+def run_spec_checker(file_name, file_spec, full_spec, generated_code):
+    """Spec Checker Agent: ensures generated code matches orchestrator spec."""
+    checker_prompt = f"""
+    Verify {file_name} strictly matches FILE-SPEC.
+    RULES:
+    - All required functions/entities/classes/APIs must exist exactly as named.
+    - No extra undefined functions/entities/classes/APIs may be introduced.
+    - Function signatures must match (params + return types).
+    - Respect __depth_boost notes (naming, error handling).
+    Respond ONLY with:
+      ✅ SPEC_MATCH
+    OR
+      ❌ SPEC_MISMATCH + list of issues to fix.
+    ---
+    FILE-SPEC: {json.dumps(file_spec, indent=2)}
+    CODE: {generated_code}
+    """
+    resp = openai.ChatCompletion.create(
+        model="gpt-4o-mini",
+        temperature=0,
+        request_timeout=60,
+        messages=[
+            {"role": "system", "content": "You are a strict alignment checker agent."},
+            {"role": "user", "content": checker_prompt}
+        ]
+    )
+    return resp.choices[0].message["content"]
+
+
 def run_agents_for_spec(spec):
-    """Runs generator + tester loop for each file until approved or retries exhausted."""
+    """Runs generator + spec checker + tester loop for each file until approved."""
     files = get_agent_files(spec)
     outputs = []
 
@@ -290,28 +319,56 @@ def run_agents_for_spec(spec):
         attempts = 0
 
         while not approved and attempts < MAX_RETRIES:
+            # Phase 1: Generation
             code = run_generator_agent(file_name, file_spec, spec, review_feedback)
-            review = run_tester_agent(file_name, file_spec, spec, code)
 
-            if "✅ APPROVED" in review or not is_hard_failure(review):
-                approved = True
-                outputs.append({
-                    "role": "agent",
-                    "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
-                    "file": file_name,
-                    "language": _detect_language_from_filename(file_name),
-                    "content": code  # raw code, no fences
-                })
-                print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
-            else:
-                print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
-                review_feedback = review
+            # Phase 2: Spec Checker loop (semantic alignment)
+            spec_aligned = False
+            spec_attempts = 0
+            while not spec_aligned and spec_attempts < MAX_RETRIES:
+                spec_review = run_spec_checker(file_name, file_spec, spec, code)
+                if "✅ SPEC_MATCH" in spec_review:
+                    spec_aligned = True
+                else:
+                    print(f"❌ {file_name} spec mismatch (Attempt {spec_attempts+1}):\n{spec_review}")
+                    review_feedback = spec_review
+                    code = run_generator_agent(file_name, file_spec, spec, review_feedback)
+                spec_attempts += 1
+
+            if not spec_aligned:
+                raise RuntimeError(f"{file_name} could not be aligned with spec after {spec_attempts} attempts.")
+
+            # Phase 3: Tester loop (technical correctness)
+            tested = False
+            test_attempts = 0
+            while not tested and test_attempts < MAX_RETRIES:
+                review = run_tester_agent(file_name, file_spec, spec, code)
+                if "✅ APPROVED" in review or not is_hard_failure(review):
+                    tested = True
+                    approved = True
+                    outputs.append({
+                        "role": "agent",
+                        "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
+                        "file": file_name,
+                        "language": _detect_language_from_filename(file_name),
+                        "content": code
+                    })
+                    print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
+                else:
+                    print(f"❌ {file_name} failed technical review (Attempt {test_attempts+1}):\n{review}")
+                    review_feedback = review
+                    code = run_generator_agent(file_name, file_spec, spec, review_feedback)
+                test_attempts += 1
+
+            if not tested:
+                raise RuntimeError(f"{file_name} could not pass technical tests after {test_attempts} attempts.")
+
             attempts += 1
 
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
 
-    # --- Final validation phase (unchanged) ---
+    # --- Final validation ---
     try:
         verify_imports(outputs)
     except Exception as e:
@@ -323,6 +380,7 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
+
 
 
 # =====================================================
