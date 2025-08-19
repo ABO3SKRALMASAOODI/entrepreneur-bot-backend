@@ -44,7 +44,7 @@ def _extract_json_strict(text: str):
         return None
 
 import time
-import openai
+
 
 def run_orchestrator(stage: str, input_data: dict) -> dict:
     """Runs a single orchestrator stage with strict JSON extraction, timeout & retries."""
