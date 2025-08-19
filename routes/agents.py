@@ -206,16 +206,23 @@ ORCHESTRATOR_STAGES = {
         '"global_reference_index": [ { "file": "<file>", "functions": ["..."], "classes": ["..."], "agents": ["..."] } ]'
         "}"
     ),
-    "booster": (
+   "booster": (
         "You are Orchestrator 4 (Detail Booster). "
-        "MISSION: Enrich the spec with depth notes (__depth_boost) for each file. "
-        "Add notes about SOLID, logging, testing, security, performance, etc. "
+        "MISSION: Enrich the spec with additional depth notes (__depth_boost) for each file. "
+        "These notes must be GENERAL best practices that apply across all languages and frameworks. "
+        "Focus on: code clarity, maintainability, testing, security, and performance. "
+        "Do NOT enforce framework-specific constructs (e.g., React render functions, PropTypes, etc.). "
+        "Do NOT create contradictory rules (e.g., requiring statelessness while also requiring logging). "
         "RULES: Output ONLY valid JSON. No explanations, no markdown, no extra text. "
         "OUTPUT FORMAT (strict JSON object): { "
         '"__depth_boost": { '
-        '"<filename>": { "notes": ["<best practices>"], "contracts": { "entities": [...], "apis": [...], "functions": [...], "protocols": [...], "errors": [...] } } '
-        "} }"
-    ),
+        '"<filename>": { '
+        '"notes": ["<general best practices>"], '
+        '"contracts": { '
+        '"entities": [...], "apis": [...], "functions": [...], "protocols": [...], "errors": [...] '
+        "} } } }"
+    )
+
     "verifier": (
         "You are Orchestrator 5 (Verifier). "
         "MISSION: Verify the boosted spec and produce the FINAL VERIFIED JSON. "
