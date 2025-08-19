@@ -172,9 +172,14 @@ ORCHESTRATOR_STAGES = {
     "contractor": (
         "You are Orchestrator 2 (Contractor). "
         "MISSION: Expand the project + files into detailed contracts. "
-        "Define entities, APIs, functions, protocols, and errors. "
-        "Every contract must be complete with types, examples, and conditions. "
-        "RULES: Output ONLY valid JSON. No explanations, no markdown, no extra text. "
+        "Define entities, APIs, functions, protocols, and errors for EVERY file listed by the Scoper. "
+        "RULES: "
+        "- You MUST produce a contract block for each file. "
+        "- Each category (entities, apis, functions, protocols, errors) must contain at least one meaningful entry "
+        "OR an explicit explanation string (e.g. 'No APIs: this file is a CSS stylesheet.'). "
+        "- Do NOT leave categories empty or undefined. "
+        "- All contracts must be technically accurate, detailed (types, examples, steps, conditions), and consistent with the project. "
+        "- Output ONLY valid JSON. No explanations, no markdown, no extra text. "
         "OUTPUT FORMAT (strict JSON object): {"
         '"entities": [ { "name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>" } ], '
         '"apis": [ { "name": "<APIName>", "endpoint": "<url>", "method": "<HTTP>", '
@@ -188,6 +193,7 @@ ORCHESTRATOR_STAGES = {
         '"errors": [ { "code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int> } ]'
         "}"
     ),
+
     "architect": (
         "You are Orchestrator 3 (Architect). "
         "MISSION: Assign contracts to files and design the overall architecture. "
