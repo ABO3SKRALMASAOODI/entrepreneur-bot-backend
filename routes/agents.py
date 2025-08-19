@@ -31,19 +31,28 @@ project_state = load_state()
 user_sessions = {}
 
 # ===== Strict JSON Extractor =====
+
+
 def _extract_json_strict(text: str):
     if not text:
         return None
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1:
-        return None
-    try:
-        return json.loads(text[start:end+1])
-    except json.JSONDecodeError:
-        return None
 
-import time
+    # Try parsing directly (works for arrays or objects)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: regex to grab the first {...} or [...] block
+    match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
+    if match:
+        snippet = match.group(1)
+        try:
+            return json.loads(snippet)
+        except json.JSONDecodeError:
+            return None
+
+    return None
 
 def run_orchestrator(stage: str, input_data: dict) -> dict:
     """Runs a single orchestrator stage with strict JSON extraction & retries, with logging."""
