@@ -45,54 +45,66 @@ def _extract_json_strict(text: str):
 
 import time
 
-
 def run_orchestrator(stage: str, input_data: dict) -> dict:
-    """Runs a single orchestrator stage with strict JSON extraction, timeout & retries."""
+    """Runs a single orchestrator stage with strict JSON extraction & retries, with logging."""
     system_msg = ORCHESTRATOR_STAGES[stage]
-    retries = 3
-    backoff = 2  # exponential backoff base
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            request_timeout=180,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": json.dumps(input_data, indent=2)}
+            ]
+        )
 
-    for attempt in range(retries):
-        try:
+        raw = resp["choices"][0]["message"]["content"]
+
+        # 🔥 LOG RAW OUTPUT TO CONSOLE
+        print("\n" + "=" * 40)
+        print(f"RAW OUTPUT from stage: {stage}")
+        print("=" * 40)
+        print(raw)
+        print("=" * 40 + "\n")
+
+        spec = _extract_json_strict(raw)
+
+        # Retry if invalid JSON
+        for attempt in range(2):
+            if spec:
+                break
+            retry_msg = (
+                "⚠️ Output was not valid JSON. "
+                "Reprint the SAME specification as STRICT JSON ONLY, without explanations."
+            )
             resp = openai.ChatCompletion.create(
                 model="gpt-4o-mini",
                 temperature=0.2,
-                request_timeout=180,  # ⏰ extend timeout
+                request_timeout=180,
                 messages=[
                     {"role": "system", "content": system_msg},
-                    {"role": "user", "content": json.dumps(input_data, indent=2)}
+                    {"role": "user", "content": retry_msg}
                 ]
             )
             raw = resp["choices"][0]["message"]["content"]
+
+            # 🔥 LOG RETRY OUTPUT
+            print("\n" + "=" * 40)
+            print(f"RETRY OUTPUT from stage: {stage}, attempt {attempt+1}")
+            print("=" * 40)
+            print(raw)
+            print("=" * 40 + "\n")
+
             spec = _extract_json_strict(raw)
 
-            if spec:
-                return spec  # ✅ success
-            else:
-                # Retry with explicit JSON reminder
-                retry_msg = "⚠️ Output was not valid JSON. Please return ONLY strict JSON for the spec."
-                resp = openai.ChatCompletion.create(
-                    model="gpt-4o-mini",
-                    temperature=0.2,
-                    request_timeout=180,
-                    messages=[
-                        {"role": "system", "content": system_msg},
-                        {"role": "user", "content": retry_msg}
-                    ]
-                )
-                raw = resp["choices"][0]["message"]["content"]
-                spec = _extract_json_strict(raw)
-                if spec:
-                    return spec
+        if not spec:
+            raise ValueError(f"Stage {stage} failed to produce valid JSON")
 
-        except Exception as e:
-            print(f"⚠️ Orchestrator stage {stage} failed on attempt {attempt+1}: {e}")
-            if attempt < retries - 1:
-                time.sleep(backoff ** attempt)  # exponential backoff
-            else:
-                raise RuntimeError(f"Orchestrator stage {stage} failed after {retries} retries: {e}")
+        return spec
 
-    raise RuntimeError(f"Stage {stage} did not produce valid JSON after retries.")
+    except Exception as e:
+        raise RuntimeError(f"Orchestrator stage {stage} failed: {e}")
 
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
