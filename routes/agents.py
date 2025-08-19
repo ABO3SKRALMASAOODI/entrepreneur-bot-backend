@@ -31,18 +31,14 @@ project_state = load_state()
 user_sessions = {}
 
 # ===== Strict JSON Extractor =====
-
-
 def _extract_json_strict(text: str):
     if not text:
         return None
-
     # Try parsing directly (works for arrays or objects)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
-
     # Fallback: regex to grab the first {...} or [...] block
     match = re.search(r'(\{.*\}|\[.*\])', text, re.DOTALL)
     if match:
@@ -51,7 +47,6 @@ def _extract_json_strict(text: str):
             return json.loads(snippet)
         except json.JSONDecodeError:
             return None
-
     return None
 
 def run_orchestrator(stage: str, input_data: dict) -> dict:
@@ -67,7 +62,6 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
                 {"role": "user", "content": json.dumps(input_data, indent=2)}
             ]
         )
-
         raw = resp["choices"][0]["message"]["content"]
 
         # 🔥 LOG RAW OUTPUT TO CONSOLE
@@ -109,9 +103,7 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
 
         if not spec:
             raise ValueError(f"Stage {stage} failed to produce valid JSON")
-
         return spec
-
     except Exception as e:
         raise RuntimeError(f"Orchestrator stage {stage} failed: {e}")
 
@@ -162,13 +154,12 @@ ORCHESTRATOR_STAGES = {
         '"project_summary": "<clear restatement of project>", '
         '"user_story": "<end-user perspective of the project>", '
         '"suggested_stack": {'
-            '"language": "<main language>", '
-            '"framework": "<framework if any>", '
-            '"database": "<database if any>"'
+        '"language": "<main language>", '
+        '"framework": "<framework if any>", '
+        '"database": "<database if any>"'
         "}"
         "}"
     ),
-
     "scoper": (
         "You are Orchestrator 1 (Scoper). "
         "MISSION: Based on the project description, produce a full list of all required files. "
@@ -178,7 +169,6 @@ ORCHESTRATOR_STAGES = {
         '{ "file": "<filename>", "category": "<type of file>", "description": "<purpose>" }'
         "]"
     ),
-
     "contractor": (
         "You are Orchestrator 2 (Contractor). "
         "MISSION: Expand the project + files into detailed contracts. "
@@ -188,17 +178,16 @@ ORCHESTRATOR_STAGES = {
         "OUTPUT FORMAT (strict JSON object): {"
         '"entities": [ { "name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>" } ], '
         '"apis": [ { "name": "<APIName>", "endpoint": "<url>", "method": "<HTTP>", '
-                   '"request_schema": {...}, "response_schema": {...}, '
-                   '"example_request": {...}, "example_response": {...} } ], '
+        '"request_schema": {...}, "response_schema": {...}, '
+        '"example_request": {...}, "example_response": {...} } ], '
         '"functions": [ { "name": "<func>", "description": "<what it does>", '
-                        '"params": {"<param>": "<type>"}, "return_type": "<type>", '
-                        '"errors": ["<error_code>"], "steps": ["Step 1...", "Step 2..."], '
-                        '"example_input": {...}, "example_output": {...} } ], '
+        '"params": {"<param>": "<type>"}, "return_type": "<type>", '
+        '"errors": ["<error_code>"], "steps": ["Step 1...", "Step 2..."], '
+        '"example_input": {...}, "example_output": {...} } ], '
         '"protocols": [ { "name": "<ProtocolName>", "flow": ["Step 1...", "Step 2..."] } ], '
         '"errors": [ { "code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int> } ]'
         "}"
     ),
-
     "architect": (
         "You are Orchestrator 3 (Architect). "
         "MISSION: Assign contracts to files and design the overall architecture. "
@@ -211,7 +200,6 @@ ORCHESTRATOR_STAGES = {
         '"global_reference_index": [ { "file": "<file>", "functions": ["..."], "classes": ["..."], "agents": ["..."] } ]'
         "}"
     ),
-
     "booster": (
         "You are Orchestrator 4 (Detail Booster). "
         "MISSION: Enrich the spec with depth notes (__depth_boost) for each file. "
@@ -222,7 +210,6 @@ ORCHESTRATOR_STAGES = {
         '"<filename>": { "notes": ["<best practices>"], "contracts": { "entities": [...], "apis": [...], "functions": [...], "protocols": [...], "errors": [...] } } '
         "} }"
     ),
-
     "verifier": (
         "You are Orchestrator 5 (Verifier). "
         "MISSION: Verify the boosted spec and produce the FINAL VERIFIED JSON. "
@@ -239,7 +226,11 @@ ORCHESTRATOR_STAGES = {
 
 
 # ===== Spec Template =====
-SPEC_TEMPLATE = """ Project: {project} Preferences/Requirements: {clarifications} Produce STRICT JSON with every section fully populated.
+SPEC_TEMPLATE = """ 
+Project: {project}
+Preferences/Requirements: {clarifications}
+Produce STRICT JSON with every section fully populated.
+
 {
   "version": "12.0",
   "generated_at": "<ISO timestamp>",
@@ -327,6 +318,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         ("requirements.txt", "Pinned dependencies for consistent environment"),
         ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
+
     for fname, desc in required_files:
         if not any(f.get("file") == fname for f in spec.get("files", [])):
             spec.setdefault("files", []).append({
@@ -338,9 +330,9 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
             })
 
     all_files = {f["file"] for f in spec.get("files", []) if "file" in f}
-    expanded_files = all_files
+
     spec["agent_blueprint"] = []
-    for file_name in sorted(expanded_files):
+    for file_name in sorted(all_files):
         base_name = file_name.rsplit(".", 1)[0]
         agent_name = "".join(word.capitalize() for word in base_name.split("_")) + "Agent"
         spec["agent_blueprint"].append({
@@ -361,6 +353,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
 def boost_spec_depth(spec: dict) -> dict:
     if "__depth_boost" not in spec:
         spec["__depth_boost"] = {}
+
     all_files = {f["file"] for f in spec.get("files", []) if "file" in f}
     for file_name in all_files:
         spec["__depth_boost"].setdefault(file_name, {})
@@ -376,6 +369,7 @@ def boost_spec_depth(spec: dict) -> dict:
             "Add full docstrings, inline comments for tricky logic.",
             "Ensure compatibility: no drift in naming, signatures, or protocols."
         ]
+
         contracts = spec.get("contracts", {})
         spec["__depth_boost"][file_name]["contracts"] = {
             "entities": contracts.get("entities", []),
@@ -384,10 +378,12 @@ def boost_spec_depth(spec: dict) -> dict:
             "protocols": contracts.get("protocols", []),
             "errors": contracts.get("errors", []),
         }
+
     return spec
+
+# ===== Pipeline Runner =====
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     """Sequentially runs all orchestrators and produces final verified spec."""
-
     # Stage 0 - Project Describer
     desc = run_orchestrator("describer", {
         "project": project,
@@ -397,18 +393,11 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     # Stage 1 - Scoper
     files = run_orchestrator("scoper", desc)
 
-    # Stage 2 - Contractor (pass files under key instead of unpacking list)
-    contracts = run_orchestrator("contractor", {
-        **desc,
-        "files": files
-    })
+    # Stage 2 - Contractor
+    contracts = run_orchestrator("contractor", {**desc, "files": files})
 
-    # Stage 3 - Architect (same fix)
-    arch = run_orchestrator("architect", {
-        **desc,
-        "files": files,
-        **contracts
-    })
+    # Stage 3 - Architect
+    arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
 
     # Stage 4 - Booster
     boosted = run_orchestrator("booster", arch)
@@ -451,6 +440,7 @@ def orchestrator():
         if incoming_constraints.strip():
             session["clarifications"] = incoming_constraints.strip()
             session["stage"] = "done"
+
         try:
             spec = orchestrator_pipeline(session["project"], session["clarifications"])
             agent_outputs = run_agents_for_spec(spec)
