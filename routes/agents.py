@@ -221,7 +221,7 @@ ORCHESTRATOR_STAGES = {
         '"contracts": { '
         '"entities": [...], "apis": [...], "functions": [...], "protocols": [...], "errors": [...] '
         "} } } }"
-    )
+    ),
 
     "verifier": (
         "You are Orchestrator 5 (Verifier). "
