@@ -385,20 +385,30 @@ def boost_spec_depth(spec: dict) -> dict:
             "errors": contracts.get("errors", []),
         }
     return spec
-
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     """Sequentially runs all orchestrators and produces final verified spec."""
+
     # Stage 0 - Project Describer
-    desc = run_orchestrator("describer", {"project": project, "clarifications": clarifications})
+    desc = run_orchestrator("describer", {
+        "project": project,
+        "clarifications": clarifications
+    })
 
     # Stage 1 - Scoper
     files = run_orchestrator("scoper", desc)
 
-    # Stage 2 - Contractor
-    contracts = run_orchestrator("contractor", {**desc, **files})
+    # Stage 2 - Contractor (pass files under key instead of unpacking list)
+    contracts = run_orchestrator("contractor", {
+        **desc,
+        "files": files
+    })
 
-    # Stage 3 - Architect
-    arch = run_orchestrator("architect", {**desc, **files, **contracts})
+    # Stage 3 - Architect (same fix)
+    arch = run_orchestrator("architect", {
+        **desc,
+        "files": files,
+        **contracts
+    })
 
     # Stage 4 - Booster
     boosted = run_orchestrator("booster", arch)
@@ -406,8 +416,10 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     # Stage 5 - Verifier
     final_spec = run_orchestrator("verifier", boosted)
 
+    # Save state
     project_state[project] = final_spec
     save_state(project_state)
+
     return final_spec
 
 # ===== Orchestrator Route =====
