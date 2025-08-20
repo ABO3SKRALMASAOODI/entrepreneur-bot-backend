@@ -83,54 +83,50 @@ def get_agent_files(spec):
             files.add(d)
 
     return sorted(files)
-def extract_file_spec(spec, file_name):
-    """
-    Build the specification for a single file so the agent knows exactly what to implement.
-    Compatible with new orchestrator pipeline.
-    """
+def extract_file_spec(file_name: str, contracts: Dict[str, Any], depth_boost: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract relevant spec for a given file, with safe fallback when 'implements' is missing."""
+
     file_spec = {
         "file": file_name,
         "functions": [],
         "apis": [],
-        "protocols": [],
         "entities": [],
+        "protocols": [],
         "errors": [],
-        "contracts": {},
+        "contracts": {
+            "functions": [],
+            "apis": [],
+            "entities": [],
+            "protocols": [],
+            "errors": []
+        },
+        "depth_notes": depth_boost.get(file_name, {}).get("notes", [])
     }
 
-    contracts = spec.get("contracts", {})
+    # Helper to filter contracts
+    def collect(items):
+        return [
+            item for item in items
+            if not item.get("implements") or file_name in item["implements"]
+        ]
 
-    # === Functions ===
-    for func in contracts.get("functions", []):
-        if file_name in func.get("implements", []):
-            file_spec["functions"].append(func)
+    # Fill each category
+    file_spec["functions"] = collect(contracts.get("functions", []))
+    file_spec["apis"] = collect(contracts.get("apis", []))
+    file_spec["entities"] = collect(contracts.get("entities", []))
+    file_spec["protocols"] = collect(contracts.get("protocols", []))
+    file_spec["errors"] = collect(contracts.get("errors", []))
 
-    # === APIs ===
-    for api in contracts.get("apis", []):
-        if file_name in api.get("implements", []):
-            file_spec["apis"].append(api)
+    # Keep global reference
+    file_spec["contracts"] = {
+        "functions": file_spec["functions"],
+        "apis": file_spec["apis"],
+        "entities": file_spec["entities"],
+        "protocols": file_spec["protocols"],
+        "errors": file_spec["errors"]
+    }
 
-    # === Protocols ===
-    for proto in contracts.get("protocols", []):
-        if file_name in proto.get("implements", []):
-            file_spec["protocols"].append(proto)
-
-    # === Entities ===
-    for ent in contracts.get("entities", []):
-        if file_name in ent.get("implements", []):
-            file_spec["entities"].append(ent)
-
-    # === Errors ===
-    for err in contracts.get("errors", []):
-        if file_name in err.get("implements", []):
-            file_spec["errors"].append(err)
-
-    # === Depth boost notes/contracts ===
-    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
-        file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
-        file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
-
-    return file_spec  # ✅ make sure this is inside the function
+    return file_spec
 
 
 def verify_imports(outputs):
