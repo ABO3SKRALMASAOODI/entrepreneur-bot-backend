@@ -49,7 +49,6 @@ def _extract_json_strict(text: str):
             return None
     return None
 
-
 def run_orchestrator(stage: str, input_data: dict) -> dict:
     """Runs a single orchestrator stage with strict JSON extraction & retries, with logging."""
     system_msg = ORCHESTRATOR_STAGES[stage]
@@ -108,7 +107,6 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
     except Exception as e:
         raise RuntimeError(f"Orchestrator stage {stage} failed: {e}")
 
-
 # ===== Universal Core Schema =====
 CORE_SHARED_SCHEMAS = """# core_shared_schemas.py
 from dataclasses import dataclass
@@ -143,7 +141,6 @@ class ServiceRequest:
     payload: Dict[str, Any]
 """
 CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
-
 
 # ===== Universal Orchestrator Instructions =====
 # ===== Orchestrator Pipeline Stages =====
@@ -208,7 +205,7 @@ ORCHESTRATOR_STAGES = {
         "MISSION: Enrich the spec with depth notes (__depth_boost) for each file. "
         "Add notes about SOLID, logging, testing, security, performance, etc. "
         "RULES: Output ONLY valid JSON. No explanations, no markdown, no extra text. "
-        'OUTPUT FORMAT (strict JSON object): { '
+        "OUTPUT FORMAT (strict JSON object): { "
         '"__depth_boost": { '
         '"<filename>": { "notes": ["<best practices>"], "contracts": { "entities": [...], "apis": [...], "functions": [...], "protocols": [...], "errors": [...] } } '
         "} }"
@@ -219,21 +216,47 @@ ORCHESTRATOR_STAGES = {
         "Ensure: every API has a backend file, every file has an agent, every function has a test, "
         "and all errors map to http_status. "
         "RULES: Output ONLY valid JSON. No explanations, no markdown, no extra text. "
-        'OUTPUT FORMAT (strict JSON object): { '
+        "OUTPUT FORMAT (strict JSON object): { "
         '"status": "VERIFIED", '
         '"final_spec": { ...full enriched and verified project spec... } '
         "}"
     )
 }
 
-
 # ===== Spec Template =====
-SPEC_TEMPLATE = """ Project: {project}
+SPEC_TEMPLATE = """ 
+Project: {project}
 Preferences/Requirements: {clarifications}
 Produce STRICT JSON with every section fully populated.
-{ "version": "12.0", "generated_at": "<ISO timestamp>", "project": "<short name>", "description": "<comprehensive summary including: {clarifications}>", "project_type": "<auto-detected type>", "target_users": ["<primary user groups>"], "tech_stack": { "language": "<main language>", "framework": "<framework if any>", "database": "<database if any>" }, "contracts": { "entities": [ {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"} ], "apis": [ { "name": "<APIName>", "endpoint": "<url>", "method": "<HTTP method or protocol>", "request_schema": {"field": "type"}, "response_schema": {"field": "type"}, "example_request": {"field": "value"}, "example_response": {"field": "value"} } ], "functions": [ { "name": "<func_name>", "description": "<what it does>", "params": {"<param>": "<type>"}, "return_type": "<type>", "errors": ["<error_code>"], "steps": ["Step 1: ...", "Step 2: ..."], "example_input": {"field": "value"}, "example_output": {"field": "value"} } ], "protocols": [ {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]} ], "errors": [ {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>} ] }, "files": [ { "file": "<path/filename>", "language": "<language>", "description": "<role in project>", "implements": ["<contracts: apis, functions, protocols, entities>"], "dependencies": ["<other files>"] } ], "dependency_graph": [ {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]} ], "execution_plan": [ {"step": 1, "description": "<implementation step>"} ], "global_reference_index": [ {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]} ], "integration_tests": [ {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"} ], "test_cases": [ {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"} ] }
+{
+  "version": "12.0",
+  "generated_at": "<ISO timestamp>",
+  "project": "<short name>",
+  "description": "<comprehensive summary including: {clarifications}>",
+  "project_type": "<auto-detected type>",
+  "target_users": ["<primary user groups>"],
+  "tech_stack": {
+    "language": "<main language>",
+    "framework": "<framework if any>",
+    "database": "<database if any>"
+  },
+  "contracts": {
+    "entities": [ {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"} ],
+    "apis": [ { "name": "<APIName>", "endpoint": "<url>", "method": "<HTTP method or protocol>", "request_schema": {"field": "type"}, "response_schema": {"field": "type"}, "example_request": {"field": "value"}, "example_response": {"field": "value"} } ],
+    "functions": [ { "name": "<func_name>", "description": "<what it does>", "params": {"<param>": "<type>"}, "return_type": "<type>", "errors": ["<error_code>"], "steps": ["Step 1: ...", "Step 2: ..."], "example_input": {"field": "value"}, "example_output": {"field": "value"} } ],
+    "protocols": [ {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]} ],
+    "errors": [ {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>} ]
+  },
+  "files": [
+    { "file": "<path/filename>", "language": "<language>", "description": "<role in project>", "implements": ["<contracts: apis, functions, protocols, entities>"], "dependencies": ["<other files>"] }
+  ],
+  "dependency_graph": [ {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]} ],
+  "execution_plan": [ {"step": 1, "description": "<implementation step>"} ],
+  "global_reference_index": [ {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]} ],
+  "integration_tests": [ {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"} ],
+  "test_cases": [ {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"} ]
+}
 """
-
 
 # ===== Constraint Enforcement =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
@@ -249,6 +272,7 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         ("requirements.txt", "Pinned dependencies for consistent environment"),
         ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
+
     for fname, desc in required_files:
         if not any(f.get("file") == fname for f in spec.get("files", [])):
             spec.setdefault("files", []).append({
@@ -277,7 +301,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
             spec["global_reference_index"].append(entry)
 
     return spec
-
 
 # ===== Depth Booster =====
 def boost_spec_depth(spec: dict) -> dict:
@@ -308,10 +331,9 @@ def boost_spec_depth(spec: dict) -> dict:
         }
     return spec
 
-
 # ===== Pipeline Runner =====
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
-    """Sequentially runs all orchestrators (without verifier) and produces final enriched spec."""
+    """Sequentially runs all orchestrators and produces final verified spec."""
 
     # Stage 0 - Project Describer
     desc = run_orchestrator("describer", {
@@ -328,29 +350,16 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     # Stage 3 - Architect
     arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
 
-    # Stage 4 - Booster (final stage now)
+    # Stage 4 - Booster
     boosted = run_orchestrator("booster", arch)
 
-    # 🔑 Merge outputs into one final usable spec
-    final_spec = {
-        "project": project,
-        "description": desc.get("project_summary", ""),
-        "files": files,
-        "contracts": contracts,
-        "architecture": arch,
-        "__depth_boost": boosted.get("__depth_boost", {}),
-        "agent_blueprint": arch.get("agent_blueprint", []),
-        "dependency_graph": arch.get("dependency_graph", []),
-        "execution_plan": arch.get("execution_plan", []),
-        "global_reference_index": arch.get("global_reference_index", []),
-    }
+    # Stage 5 - Verifier
+    final_spec = run_orchestrator("verifier", boosted)
 
     # Save state
     project_state[project] = final_spec
     save_state(project_state)
-
     return final_spec
-
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
@@ -381,17 +390,17 @@ def orchestrator():
         if incoming_constraints.strip():
             session["clarifications"] = incoming_constraints.strip()
             session["stage"] = "done"
-        try:
-            spec = orchestrator_pipeline(session["project"], session["clarifications"])
-            agent_outputs = run_agents_for_spec(spec)
-            return jsonify({
-                "role": "assistant",
-                "status": "FULLY VERIFIED",
-                "spec": spec,
-                "agents_output": agent_outputs
-            })
-        except Exception as e:
-            return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
+            try:
+                spec = orchestrator_pipeline(session["project"], session["clarifications"])
+                agent_outputs = run_agents_for_spec(spec)
+                return jsonify({
+                    "role": "assistant",
+                    "status": "FULLY VERIFIED",
+                    "spec": spec,
+                    "agents_output": agent_outputs
+                })
+            except Exception as e:
+                return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
     user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
