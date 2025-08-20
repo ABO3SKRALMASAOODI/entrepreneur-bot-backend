@@ -186,7 +186,6 @@ def verify_tests(outputs, spec):
 
 MAX_RETRIES = 10
 _first_review_cache = {}
-
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
     """Generator Agent: produces code with feedback applied (if any)."""
     feedback_note = ""
@@ -195,26 +194,14 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
             "\n\nFEEDBACK TO FIX (apply where critical, ignore style-only notes):\n"
             f"{review_feedback}"
         )
-
     agent_prompt = f"""
-You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code.
-Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility).
-Output ONLY the complete code for {file_name}.
+You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code. Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility). Output ONLY the complete code for {file_name}.
 --- FULL SPEC:
 {json.dumps(full_spec, indent=2)}
 FILE-SPEC:
 {json.dumps(file_spec, indent=2)}
 {feedback_note}
 """
-
-    # 🔍 Log the input prompt (trimmed if too long)
-    print("\n" + "="*80)
-    print(f"📝 GENERATOR PROMPT for {file_name}")
-    print("="*80)
-    print(agent_prompt[:2000])  # avoid flooding logs
-    if len(agent_prompt) > 2000:
-        print("... (prompt truncated) ...")
-    print("="*80 + "\n")
 
     try:
         resp = openai.ChatCompletion.create(
@@ -230,16 +217,6 @@ FILE-SPEC:
             ]
         )
         raw = resp.choices[0].message.content or ""
-
-        # 🔍 Log the raw output before cleanup
-        print("\n" + "="*80)
-        print(f"💻 RAW GENERATED CODE for {file_name}")
-        print("="*80)
-        print(raw[:2000])
-        if len(raw) > 2000:
-            print("... (code truncated) ...")
-        print("="*80 + "\n")
-
         return _strip_code_fences(raw)
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
@@ -251,9 +228,7 @@ def run_tester_agent(file_name, file_spec, full_spec, generated_code):
         return _first_review_cache[file_name]
 
     tester_prompt = f"""
-Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions.
-Ignore minor style/docstring/naming issues (just note them briefly if any).
-If code is usable and correct, output ONLY: ✅ APPROVED
+Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions. Ignore minor style/docstring/naming issues (just note them briefly if any). If code is usable and correct, output ONLY: ✅ APPROVED
 --- FULL SPEC:
 {json.dumps(full_spec, indent=2)}
 FILE-SPEC:
@@ -262,36 +237,25 @@ CODE:
 {generated_code}
 """
 
-    # 🔍 Log the tester input
-    print("\n" + "="*80)
-    print(f"🔍 TESTER PROMPT for {file_name}")
-    print("="*80)
-    print(tester_prompt[:2000])
-    if len(tester_prompt) > 2000:
-        print("... (prompt truncated) ...")
-    print("="*80 + "\n")
-
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         temperature=0,
         request_timeout=60,
         messages=[
-            {"role": "system", "content": "You are a strict reviewer, but approve code unless there are fatal issues."},
-            {"role": "user", "content": tester_prompt}
+            {
+                "role": "system",
+                "content": "You are a strict reviewer, but approve code unless there are fatal issues."
+            },
+            {
+                "role": "user",
+                "content": tester_prompt
+            }
         ]
     )
-
     review_text = resp.choices[0].message["content"]
-
-    # 🔍 Log the review result
-    print("\n" + "="*80)
-    print(f"📋 TESTER REVIEW RESULT for {file_name}")
-    print("="*80)
-    print(review_text)
-    print("="*80 + "\n")
-
     _first_review_cache[file_name] = review_text
     return review_text
+
 
 def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
