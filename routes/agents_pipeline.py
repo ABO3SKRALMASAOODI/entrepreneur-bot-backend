@@ -34,17 +34,14 @@ def _strip_code_fences(text: str) -> str:
     if text is None:
         return ""
     s = text.strip()
-    # Remove starting
+    # Remove starting lang or 
     if s.startswith("```"):
         s = s.split("\n", 1)
         s = s[1] if len(s) > 1 else ""
-
     # Remove trailing
     if s.endswith("```"):
         s = s[: -3].rstrip()
-
     return s
-
 
 # =====================================================
 # 1. Utility Functions
@@ -74,9 +71,11 @@ def get_agent_files(spec):
     for f in spec.get("interface_stub_files", []):
         if "file" in f:
             files.add(f["file"])
+
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             files.add(func["file"])
+
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             files.add(dep["file"])
@@ -101,39 +100,37 @@ def extract_file_spec(spec, file_name):
     }
 
     contracts = spec.get("contracts", {})
+# === Functions ===
+for func in contracts.get("functions", []):
+    if file_name in func.get("implements", []):
+        file_spec["functions"].append(func)
 
-    # === Functions ===
-    for func in contracts.get("functions", []):
-        if file_name in func.get("implements", []):
-            file_spec["functions"].append(func)
+# === APIs ===
+for api in contracts.get("apis", []):
+    if file_name in api.get("implements", []):
+        file_spec["apis"].append(api)
 
-    # === APIs ===
-    for api in contracts.get("apis", []):
-        if file_name in api.get("implements", []):
-            file_spec["apis"].append(api)
+# === Protocols ===
+for proto in contracts.get("protocols", []):
+    if file_name in proto.get("implements", []):
+        file_spec["protocols"].append(proto)
 
-    # === Protocols ===
-    for proto in contracts.get("protocols", []):
-        if file_name in proto.get("implements", []):
-            file_spec["protocols"].append(proto)
+# === Entities ===
+for ent in contracts.get("entities", []):
+    if file_name in ent.get("implements", []):
+        file_spec["entities"].append(ent)
 
-    # === Entities ===
-    for ent in contracts.get("entities", []):
-        if file_name in ent.get("implements", []):
-            file_spec["entities"].append(ent)
+# === Errors ===
+for err in contracts.get("errors", []):
+    if file_name in err.get("implements", []):
+        file_spec["errors"].append(err)
 
-    # === Errors ===
-    for err in contracts.get("errors", []):
-        if file_name in err.get("implements", []):
-            file_spec["errors"].append(err)
+# === Depth boost notes/contracts ===
+if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
+    file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
+    file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
 
-    # === Depth boost notes/contracts ===
-    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
-        file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
-        file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
-
-    return file_spec
-
+return file_spec
 
 def verify_imports(outputs):
     """Ensure generated code imports without syntax errors."""
@@ -155,8 +152,8 @@ def verify_imports(outputs):
                 raise RuntimeError(f"Import failed for {output['file']}: {e}")
     finally:
         shutil.rmtree(tmp_dir)
-    return outputs
 
+    return outputs
 
 def verify_tests(outputs, spec):
     """Run orchestrator-provided integration tests."""
@@ -179,8 +176,8 @@ def verify_tests(outputs, spec):
             raise RuntimeError(f"Integration tests failed:\n{proc.stdout}\n{proc.stderr}")
     finally:
         shutil.rmtree(tmp_dir)
-    return outputs
 
+    return outputs
 
 # =====================================================
 # 2. Generator & Tester Agents (Relaxed Assessment)
@@ -188,7 +185,6 @@ def verify_tests(outputs, spec):
 
 MAX_RETRIES = 10
 _first_review_cache = {}
-
 
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
     """Generator Agent: produces code with feedback applied (if any)."""
@@ -200,14 +196,15 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
         )
 
     agent_prompt = f"""
-    You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code.
-    Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility).
-    Output ONLY the complete code for {file_name}.
-    ---
-    FULL SPEC: {json.dumps(full_spec, indent=2)}
-    FILE-SPEC: {json.dumps(file_spec, indent=2)}
-    {feedback_note}
-    """
+You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code.
+Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility).
+Output ONLY the complete code for {file_name}.
+--- FULL SPEC:
+{json.dumps(full_spec, indent=2)}
+FILE-SPEC:
+{json.dumps(file_spec, indent=2)}
+{feedback_note}
+"""
 
     try:
         resp = openai.ChatCompletion.create(
@@ -217,7 +214,7 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a perfectionist coding agent focused on correctness and compatibility."
+                    "content": "You are a perfectionist coding agent focused on correctness and compatibility.",
                 },
                 {"role": "user", "content": agent_prompt}
             ]
@@ -227,21 +224,22 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
 
-
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
     """Tester Agent: relaxed review — only blocks on hard errors."""
     if file_name in _first_review_cache:
         return _first_review_cache[file_name]
 
     tester_prompt = f"""
-    Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests,
-    missing required functions. Ignore minor style/docstring/naming issues (just note them briefly if any).
-    If code is usable and correct, output ONLY: ✅ APPROVED
-    ---
-    FULL SPEC: {json.dumps(full_spec, indent=2)}
-    FILE-SPEC: {json.dumps(file_spec, indent=2)}
-    CODE: {generated_code}
-    """
+Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions.
+Ignore minor style/docstring/naming issues (just note them briefly if any).
+If code is usable and correct, output ONLY: ✅ APPROVED
+--- FULL SPEC:
+{json.dumps(full_spec, indent=2)}
+FILE-SPEC:
+{json.dumps(file_spec, indent=2)}
+CODE:
+{generated_code}
+"""
 
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
@@ -252,16 +250,15 @@ def run_tester_agent(file_name, file_spec, full_spec, generated_code):
             {"role": "user", "content": tester_prompt}
         ]
     )
+
     review_text = resp.choices[0].message["content"]
     _first_review_cache[file_name] = review_text
     return review_text
-
 
 def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
-
 
 def run_agents_for_spec(spec):
     """Runs generator + tester loop for each file until approved or retries exhausted."""
@@ -303,7 +300,7 @@ def run_agents_for_spec(spec):
             else:
                 print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
                 review_feedback = review
-            attempts += 1
+                attempts += 1
 
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
@@ -320,8 +317,6 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
-
-
 # =====================================================
 # 4. Flask Endpoint
 # =====================================================
@@ -332,7 +327,6 @@ def run_agents_endpoint():
     spec = body.get("spec")
     if not spec:
         return jsonify({"error": "Missing spec"}), 400
-
     try:
         agent_outputs = run_agents_for_spec(spec)
         return jsonify({"role": "assistant", "agents_output": agent_outputs})

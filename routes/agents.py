@@ -63,16 +63,13 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
             ]
         )
         raw = resp["choices"][0]["message"]["content"]
-
         # 🔥 LOG RAW OUTPUT TO CONSOLE
         print("\n" + "=" * 40)
         print(f"RAW OUTPUT from stage: {stage}")
         print("=" * 40)
         print(raw)
         print("=" * 40 + "\n")
-
         spec = _extract_json_strict(raw)
-
         # Retry if invalid JSON
         for attempt in range(2):
             if spec:
@@ -91,16 +88,13 @@ def run_orchestrator(stage: str, input_data: dict) -> dict:
                 ]
             )
             raw = resp["choices"][0]["message"]["content"]
-
             # 🔥 LOG RETRY OUTPUT
             print("\n" + "=" * 40)
             print(f"RETRY OUTPUT from stage: {stage}, attempt {attempt+1}")
             print("=" * 40)
             print(raw)
             print("=" * 40 + "\n")
-
             spec = _extract_json_strict(raw)
-
         if not spec:
             raise ValueError(f"Stage {stage} failed to produce valid JSON")
         return spec
@@ -140,6 +134,7 @@ class ServiceRequest:
     metadata: Dict[str, Any]
     payload: Dict[str, Any]
 """
+
 CORE_SCHEMA_HASH = hashlib.sha256(CORE_SHARED_SCHEMAS.encode()).hexdigest()
 
 # ===== Universal Orchestrator Instructions =====
@@ -224,8 +219,7 @@ ORCHESTRATOR_STAGES = {
 }
 
 # ===== Spec Template =====
-SPEC_TEMPLATE = """ 
-Project: {project}
+SPEC_TEMPLATE = """ Project: {project}
 Preferences/Requirements: {clarifications}
 Produce STRICT JSON with every section fully populated.
 {
@@ -241,26 +235,70 @@ Produce STRICT JSON with every section fully populated.
     "database": "<database if any>"
   },
   "contracts": {
-    "entities": [ {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"} ],
-    "apis": [ { "name": "<APIName>", "endpoint": "<url>", "method": "<HTTP method or protocol>", "request_schema": {"field": "type"}, "response_schema": {"field": "type"}, "example_request": {"field": "value"}, "example_response": {"field": "value"} } ],
-    "functions": [ { "name": "<func_name>", "description": "<what it does>", "params": {"<param>": "<type>"}, "return_type": "<type>", "errors": ["<error_code>"], "steps": ["Step 1: ...", "Step 2: ..."], "example_input": {"field": "value"}, "example_output": {"field": "value"} } ],
-    "protocols": [ {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]} ],
-    "errors": [ {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>} ]
+    "entities": [
+      {"name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>"}
+    ],
+    "apis": [
+      {
+        "name": "<APIName>",
+        "endpoint": "<url>",
+        "method": "<HTTP method or protocol>",
+        "request_schema": {"field": "type"},
+        "response_schema": {"field": "type"},
+        "example_request": {"field": "value"},
+        "example_response": {"field": "value"}
+      }
+    ],
+    "functions": [
+      {
+        "name": "<func_name>",
+        "description": "<what it does>",
+        "params": {"<param>": "<type>"},
+        "return_type": "<type>",
+        "errors": ["<error_code>"],
+        "steps": ["Step 1: ...", "Step 2: ..."],
+        "example_input": {"field": "value"},
+        "example_output": {"field": "value"}
+      }
+    ],
+    "protocols": [
+      {"name": "<ProtocolName>", "flow": ["Step 1: ...", "Step 2: ..."]}
+    ],
+    "errors": [
+      {"code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>}
+    ]
   },
   "files": [
-    { "file": "<path/filename>", "language": "<language>", "description": "<role in project>", "implements": ["<contracts: apis, functions, protocols, entities>"], "dependencies": ["<other files>"] }
+    {
+      "file": "<path/filename>",
+      "language": "<language>",
+      "description": "<role in project>",
+      "implements": ["<contracts: apis, functions, protocols, entities>"],
+      "dependencies": ["<other files>"]
+    }
   ],
-  "dependency_graph": [ {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]} ],
-  "execution_plan": [ {"step": 1, "description": "<implementation step>"} ],
-  "global_reference_index": [ {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]} ],
-  "integration_tests": [ {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"} ],
-  "test_cases": [ {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"} ]
+  "dependency_graph": [
+    {"file": "<filename>", "dependencies": ["<dep1>", "<dep2>"]}
+  ],
+  "execution_plan": [
+    {"step": 1, "description": "<implementation step>"}
+  ],
+  "global_reference_index": [
+    {"file": "<file>", "functions": ["<func1>"], "classes": ["<class1>"], "agents": ["<agent1>"]}
+  ],
+  "integration_tests": [
+    {"path": "test_protocol_roundtrip.py", "code": "# Verify protocol roundtrip"}
+  ],
+  "test_cases": [
+    {"description": "<test aligned with: {clarifications}>", "input": "<input>", "expected_output": "<output>"}
+  ]
 }
 """
-
 # ===== Constraint Enforcement =====
 def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, Any]:
-    """ Ensures universal constraints. """
+    """
+    Ensures universal constraints.
+    """
     if clarifications.strip():
         spec.setdefault("domain_specific", {})
         spec["domain_specific"]["user_constraints"] = clarifications
@@ -272,7 +310,6 @@ def enforce_constraints(spec: Dict[str, Any], clarifications: str) -> Dict[str, 
         ("requirements.txt", "Pinned dependencies for consistent environment"),
         ("core_shared_schemas.py", "Universal shared schemas for all agents"),
     ]
-
     for fname, desc in required_files:
         if not any(f.get("file") == fname for f in spec.get("files", [])):
             spec.setdefault("files", []).append({
@@ -330,29 +367,22 @@ def boost_spec_depth(spec: dict) -> dict:
             "errors": contracts.get("errors", []),
         }
     return spec
-
 # ===== Pipeline Runner =====
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     """Sequentially runs all orchestrators and produces final verified spec."""
-
     # Stage 0 - Project Describer
     desc = run_orchestrator("describer", {
         "project": project,
         "clarifications": clarifications
     })
-
     # Stage 1 - Scoper
     files = run_orchestrator("scoper", desc)
-
     # Stage 2 - Contractor
     contracts = run_orchestrator("contractor", {**desc, "files": files})
-
     # Stage 3 - Architect
     arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
-
     # Stage 4 - Booster
     boosted = run_orchestrator("booster", arch)
-
     # Stage 5 - Verifier
     final_spec = run_orchestrator("verifier", boosted)
 
