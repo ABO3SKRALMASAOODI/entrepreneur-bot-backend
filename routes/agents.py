@@ -467,15 +467,18 @@ def orchestrator():
             try:
                 spec = orchestrator_pipeline(session["project"], session["clarifications"])
                 agent_outputs = run_agents_for_spec(spec)
-               return jsonify({
-                   "role": "assistant",
-                   "status": "FULLY VERIFIED",
-                   "spec": json.loads(json.dumps(spec, default=safe_serialize)),
-                   "agents_output": json.loads(json.dumps(agent_outputs, default=safe_serialize))
+
+                # ✅ Safe serialization to avoid random 500 errors
+                return jsonify({
+                    "role": "assistant",
+                    "status": "FULLY VERIFIED",
+                    "spec": json.loads(json.dumps(spec, default=safe_serialize)),
+                    "agents_output": json.loads(json.dumps(agent_outputs, default=safe_serialize))
                 })
 
             except Exception as e:
                 return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
+    # Reset session if nothing matched
     user_sessions[user_id] = {"stage": "project", "project": "", "clarifications": ""}
     return jsonify({"role": "assistant", "content": "What is your project idea?"})
