@@ -207,7 +207,7 @@ FILE-SPEC:
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",  # or "gpt-5" if you prefer
             temperature=0,
-            request_timeout=60,
+            request_timeout=180,
             messages=[
                 {
                     "role": "system",
@@ -240,7 +240,7 @@ CODE:
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         temperature=0,
-        request_timeout=60,
+        request_timeout=180,
         messages=[
             {
                 "role": "system",
@@ -261,7 +261,7 @@ def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
-    
+
 def run_agents_for_spec(spec):
     """
     Runs generator + tester loop for each file until approved or retries exhausted.
