@@ -207,6 +207,15 @@ FILE-SPEC:
 {feedback_note}
 """
 
+    # 🔍 Log the input prompt (trimmed if too long)
+    print("\n" + "="*80)
+    print(f"📝 GENERATOR PROMPT for {file_name}")
+    print("="*80)
+    print(agent_prompt[:2000])  # avoid flooding logs
+    if len(agent_prompt) > 2000:
+        print("... (prompt truncated) ...")
+    print("="*80 + "\n")
+
     try:
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",  # or "gpt-5" if you prefer
@@ -221,9 +230,20 @@ FILE-SPEC:
             ]
         )
         raw = resp.choices[0].message.content or ""
+
+        # 🔍 Log the raw output before cleanup
+        print("\n" + "="*80)
+        print(f"💻 RAW GENERATED CODE for {file_name}")
+        print("="*80)
+        print(raw[:2000])
+        if len(raw) > 2000:
+            print("... (code truncated) ...")
+        print("="*80 + "\n")
+
         return _strip_code_fences(raw)
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
+
 
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
     """Tester Agent: relaxed review — only blocks on hard errors."""
@@ -242,6 +262,15 @@ CODE:
 {generated_code}
 """
 
+    # 🔍 Log the tester input
+    print("\n" + "="*80)
+    print(f"🔍 TESTER PROMPT for {file_name}")
+    print("="*80)
+    print(tester_prompt[:2000])
+    if len(tester_prompt) > 2000:
+        print("... (prompt truncated) ...")
+    print("="*80 + "\n")
+
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         temperature=0,
@@ -253,6 +282,14 @@ CODE:
     )
 
     review_text = resp.choices[0].message["content"]
+
+    # 🔍 Log the review result
+    print("\n" + "="*80)
+    print(f"📋 TESTER REVIEW RESULT for {file_name}")
+    print("="*80)
+    print(review_text)
+    print("="*80 + "\n")
+
     _first_review_cache[file_name] = review_text
     return review_text
 
@@ -260,9 +297,11 @@ def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
-
 def run_agents_for_spec(spec):
-    """Runs generator + tester loop for each file until approved or retries exhausted."""
+    """
+    Runs generator + tester loop for each file until approved or retries exhausted.
+    Now with detailed logging of what each agent is receiving.
+    """
     files = get_agent_files(spec)
     outputs = []
 
@@ -284,9 +323,35 @@ def run_agents_for_spec(spec):
         approved = False
         attempts = 0
 
+        # 🔍 Log what the agent is receiving
+        print("\n" + "="*60)
+        print(f"🚀 Starting agent for {file_name}")
+        print("="*60)
+        print("📂 FILE SPEC (contracts for this file):")
+        print(json.dumps(file_spec, indent=2))
+        print("-"*60)
+        print("📜 FULL SPEC (trimmed to contracts + files):")
+        try:
+            trimmed = {k: v for k, v in spec.items() if k in ["contracts", "files"]}
+            print(json.dumps(trimmed, indent=2)[:2000])  # avoid printing huge spec
+        except Exception as e:
+            print(f"(⚠️ Could not dump full spec: {e})")
+        print("="*60 + "\n")
+
         while not approved and attempts < MAX_RETRIES:
             code = run_generator_agent(file_name, file_spec, spec, review_feedback)
+
+            # 🔍 Log generated code preview
+            print(f"📝 Generated code for {file_name}, attempt {attempts+1}:")
+            print(code[:1000])  # show first 1000 chars
+            print("-"*60)
+
             review = run_tester_agent(file_name, file_spec, spec, code)
+
+            # 🔍 Log tester feedback
+            print(f"🔍 Tester review for {file_name}, attempt {attempts+1}:")
+            print(review)
+            print("="*60 + "\n")
 
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
@@ -318,6 +383,7 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
+
 # =====================================================
 # 4. Flask Endpoint
 # =====================================================
