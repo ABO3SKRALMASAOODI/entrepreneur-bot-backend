@@ -368,28 +368,47 @@ def boost_spec_depth(spec: dict) -> dict:
         }
     return spec
 # ===== Pipeline Runner =====
+# ===== Pipeline Runner =====
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
-    """Sequentially runs all orchestrators and produces final verified spec."""
+    """Sequentially runs all orchestrators (without verifier) and produces final enriched spec."""
     # Stage 0 - Project Describer
     desc = run_orchestrator("describer", {
         "project": project,
         "clarifications": clarifications
     })
+
     # Stage 1 - Scoper
     files = run_orchestrator("scoper", desc)
+
     # Stage 2 - Contractor
     contracts = run_orchestrator("contractor", {**desc, "files": files})
+
     # Stage 3 - Architect
     arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
-    # Stage 4 - Booster
+
+    # Stage 4 - Booster (now final)
     boosted = run_orchestrator("booster", arch)
-    # Stage 5 - Verifier
-    final_spec = run_orchestrator("verifier", boosted)
+
+    # 🔑 Merge outputs into one final usable spec
+    final_spec = {
+        "project": project,
+        "description": desc.get("project_summary", ""),
+        "files": files,
+        "contracts": contracts,
+        "architecture": arch,
+        "__depth_boost": boosted.get("__depth_boost", {}),
+        "agent_blueprint": arch.get("agent_blueprint", []),
+        "dependency_graph": arch.get("dependency_graph", []),
+        "execution_plan": arch.get("execution_plan", []),
+        "global_reference_index": arch.get("global_reference_index", []),
+    }
 
     # Save state
     project_state[project] = final_spec
     save_state(project_state)
+
     return final_spec
+
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
