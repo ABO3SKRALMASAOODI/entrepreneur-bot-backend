@@ -369,8 +369,11 @@ def boost_spec_depth(spec: dict) -> dict:
     return spec
 # ===== Pipeline Runner =====
 # ===== Pipeline Runner =====
+import pprint
+
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     """Sequentially runs all orchestrators (without verifier) and produces final enriched spec."""
+
     # Stage 0 - Project Describer
     desc = run_orchestrator("describer", {
         "project": project,
@@ -407,8 +410,19 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     project_state[project] = final_spec
     save_state(project_state)
 
-    return final_spec
+    # 🔥 DEBUG LOGGING (safe for Render logs)
+    print("\n" + "="*40)
+    print("FINAL SPEC (before return)")
+    print("="*40)
+    try:
+        # Safe JSON dump (turns Path, datetime, set into str)
+        print(json.dumps(final_spec, indent=2, default=str))
+    except Exception as e:
+        print(f"⚠️ Failed to serialize final_spec for logging: {e}")
+        pprint.pprint(final_spec, width=120)
+    print("="*40 + "\n")
 
+    return final_spec
 
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
