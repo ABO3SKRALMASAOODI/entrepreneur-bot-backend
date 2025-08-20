@@ -17,7 +17,11 @@ def create_app():
     app = Flask(__name__)
 
     # ✅ Explicitly allow your frontend domain
-    CORS(app, resources={r"/*": {"origins": "https://thehustlerbot.com"}})
+    CORS(app,
+     resources={r"/api/*": {"origins": "https://thehustlerbot.com"}},
+     supports_credentials=False,
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"])
 
     app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "supersecretkey")
     app.config['DATABASE_URL'] = os.getenv("DATABASE_URL")
