@@ -281,7 +281,11 @@ def run_agents_for_spec(spec):
             agent_map[matched_file] = agent.get("name", f"AgentFor-{matched_file}")
 
     for file_name in files:
-        file_spec = extract_file_spec(spec, file_name)
+        file_spec = extract_file_spec(
+           file_name,
+           spec.get("contracts", {}),
+           spec.get("__depth_boost", {})
+        )
         review_feedback = None
         approved = False
         attempts = 0
