@@ -83,7 +83,6 @@ def get_agent_files(spec):
             files.add(d)
 
     return sorted(files)
-
 def extract_file_spec(spec, file_name):
     """
     Build the specification for a single file so the agent knows exactly what to implement.
@@ -100,37 +99,39 @@ def extract_file_spec(spec, file_name):
     }
 
     contracts = spec.get("contracts", {})
-# === Functions ===
-for func in contracts.get("functions", []):
-    if file_name in func.get("implements", []):
-        file_spec["functions"].append(func)
 
-# === APIs ===
-for api in contracts.get("apis", []):
-    if file_name in api.get("implements", []):
-        file_spec["apis"].append(api)
+    # === Functions ===
+    for func in contracts.get("functions", []):
+        if file_name in func.get("implements", []):
+            file_spec["functions"].append(func)
 
-# === Protocols ===
-for proto in contracts.get("protocols", []):
-    if file_name in proto.get("implements", []):
-        file_spec["protocols"].append(proto)
+    # === APIs ===
+    for api in contracts.get("apis", []):
+        if file_name in api.get("implements", []):
+            file_spec["apis"].append(api)
 
-# === Entities ===
-for ent in contracts.get("entities", []):
-    if file_name in ent.get("implements", []):
-        file_spec["entities"].append(ent)
+    # === Protocols ===
+    for proto in contracts.get("protocols", []):
+        if file_name in proto.get("implements", []):
+            file_spec["protocols"].append(proto)
 
-# === Errors ===
-for err in contracts.get("errors", []):
-    if file_name in err.get("implements", []):
-        file_spec["errors"].append(err)
+    # === Entities ===
+    for ent in contracts.get("entities", []):
+        if file_name in ent.get("implements", []):
+            file_spec["entities"].append(ent)
 
-# === Depth boost notes/contracts ===
-if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
-    file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
-    file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
+    # === Errors ===
+    for err in contracts.get("errors", []):
+        if file_name in err.get("implements", []):
+            file_spec["errors"].append(err)
 
-return file_spec
+    # === Depth boost notes/contracts ===
+    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
+        file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
+        file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
+
+    return file_spec  # ✅ make sure this is inside the function
+
 
 def verify_imports(outputs):
     """Ensure generated code imports without syntax errors."""
