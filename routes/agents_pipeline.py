@@ -261,15 +261,16 @@ def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
+    
 def run_agents_for_spec(spec):
     """
     Runs generator + tester loop for each file until approved or retries exhausted.
-    Now with detailed logging of what each agent is receiving.
+    Now logs ONLY the final result per file (success or failure).
     """
     files = get_agent_files(spec)
     outputs = []
 
-    # Map file -> agent name (best effort from blueprint descriptions)
+    # Map file -> agent name
     agent_map = {}
     for agent in spec.get("agent_blueprint", []):
         desc = agent.get("description", "")
@@ -286,36 +287,13 @@ def run_agents_for_spec(spec):
         review_feedback = None
         approved = False
         attempts = 0
-
-        # 🔍 Log what the agent is receiving
-        print("\n" + "="*60)
-        print(f"🚀 Starting agent for {file_name}")
-        print("="*60)
-        print("📂 FILE SPEC (contracts for this file):")
-        print(json.dumps(file_spec, indent=2))
-        print("-"*60)
-        print("📜 FULL SPEC (trimmed to contracts + files):")
-        try:
-            trimmed = {k: v for k, v in spec.items() if k in ["contracts", "files"]}
-            print(json.dumps(trimmed, indent=2)[:2000])  # avoid printing huge spec
-        except Exception as e:
-            print(f"(⚠️ Could not dump full spec: {e})")
-        print("="*60 + "\n")
+        final_code, final_review = None, None
 
         while not approved and attempts < MAX_RETRIES:
             code = run_generator_agent(file_name, file_spec, spec, review_feedback)
-
-            # 🔍 Log generated code preview
-            print(f"📝 Generated code for {file_name}, attempt {attempts+1}:")
-            print(code[:1000])  # show first 1000 chars
-            print("-"*60)
-
             review = run_tester_agent(file_name, file_spec, spec, code)
 
-            # 🔍 Log tester feedback
-            print(f"🔍 Tester review for {file_name}, attempt {attempts+1}:")
-            print(review)
-            print("="*60 + "\n")
+            final_code, final_review = code, review  # always keep the last attempt
 
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
@@ -324,18 +302,30 @@ def run_agents_for_spec(spec):
                     "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
                     "file": file_name,
                     "language": _detect_language_from_filename(file_name),
-                    "content": code  # raw code, no fences
+                    "content": code
                 })
-                print(f"✅ {file_name} accepted after {attempts+1} attempt(s).")
             else:
-                print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
                 review_feedback = review
                 attempts += 1
+
+        # 🔍 Log ONLY the final result for this file
+        print("\n" + "="*60)
+        print(f"📄 Final result for {file_name} (after {attempts+1} attempt(s))")
+        print("="*60)
+        if approved:
+            print("✅ APPROVED")
+        else:
+            print("❌ FAILED after max retries")
+        print("\n📝 Final code preview:")
+        print((final_code or "")[:1000])
+        print("\n🔍 Final review feedback:")
+        print(final_review or "No review")
+        print("="*60 + "\n")
 
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
 
-    # --- Final validation phase (unchanged) ---
+    # Final validations
     try:
         verify_imports(outputs)
     except Exception as e:
@@ -347,6 +337,7 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
+
 
 # =====================================================
 # 4. Flask Endpoint
