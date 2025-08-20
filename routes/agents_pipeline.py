@@ -265,7 +265,7 @@ def is_hard_failure(review: str) -> bool:
 def run_agents_for_spec(spec):
     """
     Runs generator + tester loop for each file until approved or retries exhausted.
-    Now logs ONLY the final result per file (success or failure).
+    Logs orchestrator + agent activity in detail.
     """
     files = get_agent_files(spec)
     outputs = []
@@ -290,10 +290,24 @@ def run_agents_for_spec(spec):
         final_code, final_review = None, None
 
         while not approved and attempts < MAX_RETRIES:
+            # 🔥 LOG CLEAR INPUT TO AGENT
+            print("\n" + "#"*80)
+            print(f"🤖 AGENT INPUT for {file_name} (attempt {attempts+1})")
+            print("#"*80)
+            try:
+                print("📂 FILE SPEC:")
+                print(json.dumps(file_spec, indent=2, default=str))
+                print("\n📦 FULL SPEC (trimmed):")
+                print(json.dumps(spec, indent=2, default=str)[:2000] + " ... [TRUNCATED]" )
+            except Exception as e:
+                print(f"⚠️ Could not serialize agent input: {e}")
+            print("#"*80 + "\n")
+
+            # === RUN GENERATOR + TESTER ===
             code = run_generator_agent(file_name, file_spec, spec, review_feedback)
             review = run_tester_agent(file_name, file_spec, spec, code)
 
-            final_code, final_review = code, review  # always keep the last attempt
+            final_code, final_review = code, review
 
             if "✅ APPROVED" in review or not is_hard_failure(review):
                 approved = True
@@ -308,7 +322,7 @@ def run_agents_for_spec(spec):
                 review_feedback = review
                 attempts += 1
 
-        # 🔍 Log ONLY the final result for this file
+        # 🔍 FINAL RESULT LOG
         print("\n" + "="*60)
         print(f"📄 Final result for {file_name} (after {attempts+1} attempt(s))")
         print("="*60)
@@ -325,7 +339,7 @@ def run_agents_for_spec(spec):
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
 
-    # Final validations
+    # Validation checks
     try:
         verify_imports(outputs)
     except Exception as e:
@@ -337,7 +351,6 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
-
 
 # =====================================================
 # 4. Flask Endpoint
