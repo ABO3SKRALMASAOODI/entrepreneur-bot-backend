@@ -12,6 +12,17 @@ from flask_cors import cross_origin
 agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+# ===== JSON Safety Helper =====
+def safe_serialize(obj):
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, Enum):
+        return obj.value
+    return str(obj)
 # ===== Persistent State =====
 PROJECT_STATE_FILE = Path("project_state.json")
 
@@ -456,12 +467,13 @@ def orchestrator():
             try:
                 spec = orchestrator_pipeline(session["project"], session["clarifications"])
                 agent_outputs = run_agents_for_spec(spec)
-                return jsonify({
-                    "role": "assistant",
-                    "status": "FULLY VERIFIED",
-                    "spec": spec,
-                    "agents_output": agent_outputs
+               return jsonify({
+                   "role": "assistant",
+                   "status": "FULLY VERIFIED",
+                   "spec": json.loads(json.dumps(spec, default=safe_serialize)),
+                   "agents_output": json.loads(json.dumps(agent_outputs, default=safe_serialize))
                 })
+
             except Exception as e:
                 return jsonify({"role": "assistant", "content": f"❌ Failed to generate verified project: {e}"}), 500
 
