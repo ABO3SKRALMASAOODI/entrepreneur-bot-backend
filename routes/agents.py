@@ -176,30 +176,40 @@ ORCHESTRATOR_STAGES = {
         "]"
     ),
    "contractor": (
-       "You are Orchestrator 2 (Contractor). "
-       "MISSION: Expand the project + files into detailed contracts. "
-       "Define entities, APIs, functions, protocols, and errors. "
-       "Every contract must be complete with types, examples, and conditions. "
-       "⚠️ RULE: Every contract MUST include an 'implements' field listing the file(s) that use it. "
-       "RULES: Output ONLY valid JSON. No explanations, no markdown, no extra text. "
-       "OUTPUT FORMAT (strict JSON object): {"
-       '"entities": [ { "name": "<EntityName>", "fields": {"field": "type"}, "description": "<meaning>", '
-       '"implements": ["<FileName>.js"] } ], '
-       '"apis": [ { "name": "<APIName>", "endpoint": "<url>", "method": "<HTTP>", '
-       '"request_schema": {...}, "response_schema": {...}, '
-       '"example_request": {...}, "example_response": {...}, '
-       '"implements": ["<FileName>.js"] } ], '
-       '"functions": [ { "name": "<func>", "description": "<what it does>", '
-       '"params": {"<param>": "<type>"}, "return_type": "<type>", '
-       '"errors": ["<error_code>"], "steps": ["Step 1...", "Step 2..."], '
-       '"example_input": {...}, "example_output": {...}, '
-       '"implements": ["<FileName>.js"] } ], '
-       '"protocols": [ { "name": "<ProtocolName>", "flow": ["Step 1...", "Step 2..."], '
-       '"implements": ["<FileName>.js"] } ], '
-       '"errors": [ { "code": "<ERROR_CODE>", "condition": "<when triggered>", "http_status": <int>, '
-       '"implements": ["<FileName>.js"] } ]'
-       "}"
+        "You are Orchestrator 2 (Contractor). "
+        "MISSION: Expand the project and its files into detailed, file-specific contracts. "
+        "Every file in the project MUST have contracts assigned. "
+        "For each file, define the functions, entities, APIs, protocols, and errors that belong to it. "
+        "If a file does not naturally have one of these categories (e.g., no APIs), "
+        "then assign meaningful functions or protocols that describe its role (e.g., renderUI, parseConfig, applyStyles). "
+        "Never leave a file with empty contracts. "
+        "⚠️ RULES: "
+        "- Every contract MUST include an 'implements' field with the exact filenames it belongs to. "
+        "- Cover ALL files listed in the project scope. "
+        "- Be comprehensive: functions must include description, params, return_type, errors, steps, example_input, and example_output. "
+        "- Entities must list fields with types and meaning. "
+        "- APIs must have endpoint, method, request/response schema, examples. "
+        "- Protocols must define step-by-step flows between components. "
+        "- Errors must map to http_status and conditions. "
+        "Output ONLY valid JSON. No explanations, no markdown, no extra text. "
+        "OUTPUT FORMAT (strict JSON object): { "
+        "  \"entities\": [ { \"name\": \"<EntityName>\", \"fields\": {\"field\": \"type\"}, \"description\": \"<meaning>\", \"implements\": [\"<FileName>\"] } ], "
+        "  \"apis\": [ { \"name\": \"<APIName>\", \"endpoint\": \"<url>\", \"method\": \"<HTTP>\", "
+        "             \"request_schema\": {...}, \"response_schema\": {...}, "
+        "             \"example_request\": {...}, \"example_response\": {...}, "
+        "             \"implements\": [\"<FileName>\"] } ], "
+        "  \"functions\": [ { \"name\": \"<func>\", \"description\": \"<what it does>\", "
+        "                  \"params\": {\"<param>\": \"<type>\"}, \"return_type\": \"<type>\", "
+        "                  \"errors\": [\"<error_code>\"], \"steps\": [\"Step 1...\", \"Step 2...\"], "
+        "                  \"example_input\": {...}, \"example_output\": {...}, "
+        "                  \"implements\": [\"<FileName>\"] } ], "
+        "  \"protocols\": [ { \"name\": \"<ProtocolName>\", \"flow\": [\"Step 1...\", \"Step 2...\"], "
+        "                  \"implements\": [\"<FileName>\"] } ], "
+        "  \"errors\": [ { \"code\": \"<ERROR_CODE>\", \"condition\": \"<when triggered>\", \"http_status\": <int>, "
+        "               \"implements\": [\"<FileName>\"] } ] "
+        "}"
     ),
+
 
     "architect": (
         "You are Orchestrator 3 (Architect). "
