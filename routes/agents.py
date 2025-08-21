@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, Any
 from routes.agents_pipeline import run_agents_for_spec
 from flask_cors import cross_origin
-
+import pprint
 # ===== Flask Blueprint =====
 agents_bp = Blueprint("agents", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -320,6 +320,18 @@ ORCHESTRATOR_STAGES = {
         "\"errors\": [...] "
         "} } } } "
     ),
+    "sanity_checker": (
+    "You are Orchestrator 3.5 (Sanity Checker). "
+    "MISSION: Review the contracts from the Contractor and the plan from the Architect to find critical architectural flaws. "
+    "Your only goal is to ensure the plan is logically sound before the Booster enriches it. "
+    "RULES: "
+    "1. VERIFY DEPENDENCIES: For client-server architectures (React/Vue/Angular frontend, Node.js/Python/Go backend), a frontend file MUST NOT depend on a backend file. Frontend communicates via API calls ONLY. If you find an illegal dependency, you must identify it. "
+    "2. VERIFY COVERAGE: Ensure every major contract (API, function) from the Contractor is assigned to a file in the Architect's plan. "
+    "OUTPUT (STRICT JSON ONLY): { "
+    '"status": "<"VALID" or "INVALID">", '
+    '"errors_found": ["<description of architectural error 1>", "<description of error 2>"] '
+    "}"
+),
 
     "verifier": (
         "You are Orchestrator 5 (Verifier). "
@@ -485,36 +497,51 @@ def boost_spec_depth(spec: dict) -> dict:
     return spec
 # ===== Pipeline Runner =====
 # ===== Pipeline Runner =====
-import pprint
+# Replace your old merge_specs function with this one.
 
-def orchestrator_pipeline(project: str, clarifications: str) -> dict:
-    """Sequentially runs all orchestrators (without verifier) and produces final enriched spec."""
+def _merge_contract_list(base_list: list, boost_list: list, key_field: str = 'name') -> list:
+    """Helper to intelligently merge two lists of contract dictionaries."""
+    merged_contracts = {item[key_field]: item for item in base_list}
+    for item in boost_list:
+        key = item.get(key_field)
+        if key in merged_contracts:
+            # Deep merge or specific enrichment logic can go here if needed
+            merged_contracts[key].update(item)
+        else:
+            merged_contracts[key] = item
+    return list(merged_contracts.values())
 
-    # Stage 0 - Project Describer
-    desc = run_orchestrator("describer", {
-        "project": project,
-        "clarifications": clarifications
-    })
+def merge_specs(desc: Dict[str, Any],
+                files: Any,
+                contracts: Dict[str, Any],
+                arch: Dict[str, Any],
+                boosted: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Intelligently merge outputs from all stages into one final authoritative spec.
+    Prevents duplication by using contract names as keys.
+    """
+    final_contracts = {}
 
-    # Stage 1 - Scoper
-    files = run_orchestrator("scoper", desc)
+    # Use the highly-detailed Contractor output as the base
+    for key in ["entities", "apis", "functions", "protocols", "errors"]:
+        final_contracts[key] = contracts.get(key, [])
 
-    # Stage 2 - Contractor
-    contracts = run_orchestrator("contractor", {**desc, "files": files})
+    # Intelligently merge the Booster's enrichments, not just append them
+    for fname, details in boosted.get("__depth_boost", {}).items():
+        booster_contracts = details.get("contracts", {})
+        for key, boost_list in booster_contracts.items():
+            if key in final_contracts:
+                base_list = final_contracts[key]
+                key_field = 'name' if key in ['entities', 'apis', 'functions', 'protocols'] else 'code'
+                final_contracts[key] = _merge_contract_list(base_list, boost_list, key_field)
 
-    # Stage 3 - Architect
-    arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
-
-    # Stage 4 - Booster (now final)
-    boosted = run_orchestrator("booster", arch)
-
-    # 🔑 Merge outputs into one final usable spec
-    final_spec = {
-        "project": project,
+    return {
+        "project": desc.get("project", ""),
         "description": desc.get("project_summary", ""),
         "files": files,
-        "contracts": contracts,
-        "architecture": arch,
+        "contracts": final_contracts,
+        "architecture": arch, # The architect's output is taken as the authority
+        # The raw __depth_boost can still be useful for file-specific notes
         "__depth_boost": boosted.get("__depth_boost", {}),
         "agent_blueprint": arch.get("agent_blueprint", []),
         "dependency_graph": arch.get("dependency_graph", []),
@@ -522,20 +549,68 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
         "global_reference_index": arch.get("global_reference_index", []),
     }
 
-    # Save state
+def orchestrator_pipeline(project: str, clarifications: str) -> dict:
+    """
+    Runs the full orchestrator pipeline with integrated validation stages.
+
+    This function sequentially calls each specialized orchestrator to build a
+    detailed project specification. It includes a sanity check to validate the
+    architecture early and a final verifier to ensure consistency before
+    passing the spec to the code generation agents.
+
+    Args:
+        project: The user's initial project description.
+        clarifications: Any additional constraints or preferences from the user.
+
+    Returns:
+        A dictionary containing the final, verified project specification.
+
+    Raises:
+        RuntimeError: If the architectural plan fails the sanity check.
+    """
+    # Stage 0: Describe Project - High-level overview and tech stack selection.
+    print("🚀 Stage 0: Describing project...")
+    desc = run_orchestrator("describer", {"project": project, "clarifications": clarifications})
+
+    # Stage 1: Scope Files - Identify all necessary files for the project.
+    print("🚀 Stage 1: Scoping files...")
+    files = run_orchestrator("scoper", desc)
+
+    # Stage 2: Define Contracts - Create detailed technical contracts for all APIs, functions, etc.
+    print("🚀 Stage 2: Defining contracts...")
+    contracts = run_orchestrator("contractor", {**desc, "files": files})
+
+    # Stage 3: Design Architecture - Create the dependency graph and overall system design.
+    print("🚀 Stage 3: Designing architecture...")
+    arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
+
+    # Stage 3.5: Sanity Check - Programmatically validate the architect's plan before proceeding.
+    print("🚀 Stage 3.5: Performing sanity check on architecture...")
+    sanity_check_result = run_orchestrator("sanity_checker", {**contracts, **arch})
+    if sanity_check_result.get("status") == "INVALID":
+        errors = "\n".join(sanity_check_result.get("errors_found", ["Unknown architectural error."]))
+        raise RuntimeError(f"❌ Architectural plan failed sanity check:\n{errors}")
+    print("✅ Architectural plan passed sanity check.")
+
+    # Stage 4: Boost Details - Enrich the existing plan with best practices and further detail.
+    print("🚀 Stage 4: Boosting specification details...")
+    boosted = run_orchestrator("booster", {**desc, "files": files, **contracts, **arch})
+
+    # Merge all generated parts into a single, coherent specification object.
+    final_spec = merge_specs(desc, files, contracts, arch, boosted)
+
+    # Stage 5: Final Verification - A final LLM pass to ensure the entire spec is consistent.
+    print("🚀 Stage 5: Verifying final spec...")
+    verified_output = run_orchestrator("verifier", {"spec_to_verify": final_spec})
+    final_spec = verified_output.get("final_spec", final_spec)  # Use the verifier's clean output
+    print("✅ Final spec has been verified.")
+
+    # Persist the state of the completed project plan.
     project_state[project] = final_spec
     save_state(project_state)
 
-    # 🔥 DEBUG LOGGING (safe for Render logs)
     print("\n" + "="*40)
-    print("FINAL SPEC (before return)")
-    print("="*40)
-    try:
-        # Safe JSON dump (turns Path, datetime, set into str)
-        print(json.dumps(final_spec, indent=2, default=str))
-    except Exception as e:
-        print(f"⚠️ Failed to serialize final_spec for logging: {e}")
-        pprint.pprint(final_spec, width=120)
+    print("✅ ORCHESTRATION COMPLETE: FINAL SPEC GENERATED")
     print("="*40 + "\n")
 
     return final_spec

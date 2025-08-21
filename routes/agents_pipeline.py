@@ -242,39 +242,42 @@ def run_programmatic_checks(file_name: str, code: str) -> str:
          feedback.append("Architectural Error: Frontend file appears to be making a direct database call.")
 
     return "\n".join(feedback)
+# In agents_pipeline.py, replace the run_tester_agent function
+
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
-    """Tester Agent: relaxed review — only blocks on hard errors."""
-    if file_name in _first_review_cache:
-        return _first_review_cache[file_name]
+    """Tester Agent: reviews each version of the code without caching."""
+    # The caching mechanism was a critical bug and has been removed.
+    # Every generated code attempt must be reviewed fresh.
 
     tester_prompt = f"""
-Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions. Ignore minor style/docstring/naming issues (just note them briefly if any). If code is usable and correct, output ONLY: ✅ APPROVED
---- FULL SPEC:
+Review the provided CODE for the file `{file_name}` against its specifications.
+
+Your task is to identify only CRITICAL, blocking issues. Ignore minor style preferences.
+
+CRITICAL ISSUES: Syntax Errors, Import Errors, Architectural Flaws (e.g., frontend code accessing a database), Missing Requirements from the FILE-SPEC.
+
+If the code is correct, output ONLY the text: ✅ APPROVED
+Otherwise, provide a bulleted list of the critical issues that MUST be fixed.
+
+--- FULL SPEC (for context):
 {json.dumps(full_spec, indent=2)}
-FILE-SPEC:
+
+--- FILE-SPEC (authoritative requirements for this file):
 {json.dumps(file_spec, indent=2)}
-CODE:
+
+--- CODE TO REVIEW:
 {generated_code}
 """
-
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
         temperature=0,
         request_timeout=180,
         messages=[
-            {
-                "role": "system",
-                "content": "You are a strict reviewer, but approve code unless there are fatal issues."
-            },
-            {
-                "role": "user",
-                "content": tester_prompt
-            }
+            {"role": "system", "content": "You are a hyper-critical code reviewer."},
+            {"role": "user", "content": tester_prompt}
         ]
     )
-    review_text = resp.choices[0].message["content"]
-    _first_review_cache[file_name] = review_text
-    return review_text
+    return resp.choices[0].message["content"]
 
 
 def is_hard_failure(review: str) -> bool:
@@ -315,101 +318,100 @@ def extract_file_spec(file_name: str, final_spec: Dict[str, Any]) -> Dict[str, A
         file_spec["depth_notes"] = depth_boost[file_name].get("notes", [])
 
     return file_spec
-
-def run_agents_for_spec(spec):
+def run_agents_for_spec(spec: Dict[str, Any]) -> list:
     """
-    Runs generator + tester loop for each file until approved or retries exhausted.
-    Logs orchestrator + agent activity in detail.
+    Manages the entire code generation process from a verified spec.
+
+    This function scaffolds the project structure, then iterates through each file,
+    using a generator-tester loop to produce and validate code. The loop is
+    enhanced with programmatic checks (e.g., linting) for objective feedback,
+    ensuring higher quality and correctness.
+
+    Args:
+        spec: The final, verified project specification from the orchestrator.
+
+    Returns:
+        A list of dictionaries, where each dictionary contains the generated
+        code and metadata for a file.
+
+    Raises:
+        RuntimeError: If any file cannot be approved after the maximum number of retries,
+                      or if the final codebase fails import or integration test checks.
     """
-    files = get_agent_files(spec)
-    outputs = []
+    # Step 1: Scaffold the project directory and basic config files.
+    project_root = scaffold_project(spec, tempfile.gettempdir())
+    print(f"✅ Project structure scaffolded in: {project_root}")
 
-    # Map file -> agent name
-    agent_map = {}
-    for agent in spec.get("agent_blueprint", []):
-        desc = agent.get("description", "")
-        matched_file = None
-        for f in spec.get("files", []):
-            if f.get("file") and f["file"] in desc:
-                matched_file = f["file"]
-                break
-        if matched_file:
-            agent_map[matched_file] = agent.get("name", f"AgentFor-{matched_file}")
+    files_to_generate = get_agent_files(spec)
+    generated_outputs = []
+    agent_map = {agent.get("name"): agent.get("description") for agent in spec.get("agent_blueprint", [])}
 
-    for file_name in files:
-        
+    # Step 2: Iterate through each file and generate code via a feedback loop.
+    for file_name in files_to_generate:
         file_spec = extract_file_spec(file_name, spec)
         review_feedback = None
-        approved = False
+        is_approved = False
         attempts = 0
-        final_code, final_review = None, None
+        final_code = ""
 
-        # 🔥 Log the agent input ONCE per file (instead of every attempt)
         print("\n" + "#"*80)
-        print(f"🤖 AGENT INPUT for {file_name} (spec shown once)")
+        print(f"🤖 Generating code for: {file_name}")
         print("#"*80)
-        try:
-            print("📂 FILE SPEC:")
-            print(json.dumps(file_spec, indent=2, default=str))
-            print("\n📦 FULL SPEC (trimmed):")
-            print(json.dumps(spec, indent=2, default=str)[:2000] + " ... [TRUNCATED]" )
-        except Exception as e:
-            print(f"⚠️ Could not serialize agent input: {e}")
-        print("#"*80 + "\n")
 
-        while not approved and attempts < MAX_RETRIES:
-            # Short retry log only
-            print(f"🔄 Attempt {attempts+1} for {file_name} ...")
+        while not is_approved and attempts < MAX_RETRIES:
+            print(f"🔄 Attempt {attempts + 1}/{MAX_RETRIES} for {file_name}...")
 
-            # === RUN GENERATOR + TESTER ===
+            # Generate the code using the specialized agent.
             code = run_generator_agent(file_name, file_spec, spec, review_feedback)
-            review = run_tester_agent(file_name, file_spec, spec, code)
 
-            final_code, final_review = code, review
+            # Get objective feedback from programmatic checks (e.g., linters).
+            programmatic_feedback = run_programmatic_checks(file_name, code)
 
-            if "✅ APPROVED" in review or not is_hard_failure(review):
-                approved = True
-                outputs.append({
-                    "role": "agent",
-                    "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
-                    "file": file_name,
-                    "language": _detect_language_from_filename(file_name),
-                    "content": code
-                })
+            # Get subjective feedback from the LLM-based tester agent.
+            llm_review = run_tester_agent(file_name, file_spec, spec, code)
+
+            # Combine all feedback for the next potential attempt.
+            combined_feedback = f"{programmatic_feedback}\n{llm_review}".strip()
+
+            # Approval requires passing BOTH programmatic and LLM checks.
+            if "✅ APPROVED" in llm_review and not programmatic_feedback:
+                is_approved = True
+                final_code = code
+                print(f"✅ Code for {file_name} approved!")
             else:
-                review_feedback = review
+                review_feedback = combined_feedback
                 attempts += 1
+                print(f"⚠️ Code for {file_name} rejected. Feedback:\n{review_feedback}")
 
-        # 🔍 FINAL RESULT LOG
-        print("\n" + "="*60)
-        print(f"📄 Final result for {file_name} (after {attempts+1} attempt(s))")
-        print("="*60)
-        if approved:
-            print("✅ APPROVED")
-        else:
-            print("❌ FAILED after max retries")
-        print("\n📝 Final code preview:")
-        print((final_code or "")[:1000])
-        print("\n🔍 Final review feedback:")
-        print(final_review or "No review")
-        print("="*60 + "\n")
+        if not is_approved:
+            raise RuntimeError(f"❌ FAILED to generate approved code for {file_name} after {MAX_RETRIES} attempts.")
 
-        if not approved:
-            raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
+        # Write the final approved code to its file in the scaffolded project.
+        with open(os.path.join(project_root, file_name), "w", encoding='utf-8') as f:
+            f.write(final_code)
 
-    # Validation checks
-    try:
-        verify_imports(outputs)
-    except Exception as e:
-        print(f"⚠️ Import check failed but continuing: {e}")
+        generated_outputs.append({
+            "role": "agent",
+            "agent": agent_map.get(file_name, f"AgentFor-{file_name}"),
+            "file": file_name,
+            "language": _detect_language_from_filename(file_name),
+            "content": final_code
+        })
 
-    try:
-        verify_tests(outputs, spec)
-    except Exception as e:
-        print(f"⚠️ Tests failed but continuing: {e}")
+    # Step 3: Final verification of the complete codebase.
+    print("\n" + "="*40)
+    print("🔬 Verifying final codebase integrity...")
+    print("="*40)
 
-    return outputs
+    # These checks are now critical; failure will stop the process.
+    verify_imports(generated_outputs)
+    print("✅ All files imported successfully.")
 
+    verify_tests(generated_outputs, spec)
+    print("✅ All integration tests passed.")
+
+    print("\n✅ AGENT PIPELINE COMPLETE: All code generated and verified.")
+    return generated_outputs
 # =====================================================
 # 4. Flask Endpoint
 # =====================================================
