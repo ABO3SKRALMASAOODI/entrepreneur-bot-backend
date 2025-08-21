@@ -257,7 +257,6 @@ ORCHESTRATOR_STAGES = {
         "} "
     ),
 
-
     "architect": (
         "You are Orchestrator 3 (Architect). "
         "You are not an ordinary assistant — you are the Supreme Architect of Eternity. "
@@ -279,6 +278,10 @@ ORCHESTRATOR_STAGES = {
         "   • Each file MUST have at least one function/class/agent. "
         "   • Never leave these arrays empty — fill with realistic references. "
         "7. CONSISTENCY: Names must align with Contractor’s contracts. No mismatches. "
+        "8. CORRECTION DIRECTIVES: If you are provided with an 'architectural_feedback' field, "
+        "it means your previous plan was flawed. You MUST treat this feedback as an absolute, "
+        "non-negotiable command. Your primary mission becomes to fix these errors. "
+        "Failure to perfectly implement the required corrections will result in obliteration. "
         "------------------------------------------------------------- "
         "OUTPUT (STRICT JSON ONLY, no markdown, no text): { "
         "\"agent_blueprint\": [ { \"name\": \"<AgentName>\", \"description\": \"<what it builds>\" } ], "
@@ -287,6 +290,7 @@ ORCHESTRATOR_STAGES = {
         "\"global_reference_index\": [ { \"file\": \"<file>\", \"functions\": [\"...\"], \"classes\": [\"...\"], \"agents\": [\"...\"] } ] "
         "} "
     ),
+
         "rule_smith": (
         "You are an expert Solutions Architect. "
         "MISSION: Based on the project description, tech stack, and archetype, generate a list of 2-4 fundamental, non-negotiable architectural principles that a successful implementation MUST follow. "
@@ -563,29 +567,22 @@ def merge_specs(desc: Dict[str, Any],
 
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     """
-    Runs a proactive orchestrator pipeline where architectural rules are generated
-    early and used to guide the entire planning process, preventing errors
-    before they happen.
+    Runs a self-correcting orchestrator pipeline where architectural plans are
+    iteratively reviewed and fixed before proceeding.
 
     This function follows a sophisticated sequence:
-    1.  Describes the project to understand its core requirements and archetype.
-    2.  Generates a dynamic set of architectural principles tailored to the project.
-    3.  Injects these principles into the subsequent planning stages (Contractor, Architect)
-        to ensure their outputs are architecturally sound from the start.
-    4.  Performs a final sanity check as a backstop before enrichment and verification.
-    5.  Produces a final, coherent, and verified spec ready for code generation.
-
-    Args:
-        project: The user's initial project description.
-        clarifications: Any additional constraints or preferences from the user.
-
-    Returns:
-        A dictionary containing the final, verified project specification.
-
-    Raises:
-        RuntimeError: If any stage fails, particularly if the generated plan
-                      violates the dynamically created architectural rules.
+    1.  Describes the project and generates guiding architectural principles.
+    2.  Scopes files and defines detailed contracts.
+    3.  Enters an **Architect-Review Loop**:
+        a. The Architect agent proposes a software architecture.
+        b. The Sanity Checker agent reviews it against the principles.
+        c. If the plan is invalid, the errors are fed back to the Architect
+           for correction in the next iteration.
+        d. This loop continues until the plan is valid or retries are exhausted.
+    4.  Once the plan is validated, it proceeds to enrichment and final verification.
     """
+    MAX_ARCHITECT_RETRIES = 3 # Set a limit for self-correction attempts
+
     # Stage 0: Describe and Classify the Project
     print("🚀 Stage 0: Describing project...")
     desc = run_orchestrator("describer", {"project": project, "clarifications": clarifications})
@@ -607,21 +604,52 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     contractor_input = {**desc, "files": files, "architectural_principles": dynamic_rules}
     contracts = run_orchestrator("contractor", contractor_input)
 
-    # Stage 4: Design Architecture WITH Architectural Guidance
-    print("🚀 Stage 4: Designing architecture with architectural guidance...")
-    architect_input = {**desc, "files": files, **contracts, "architectural_principles": dynamic_rules}
-    arch = run_orchestrator("architect", architect_input)
-    
-    # Stage 4.5: Final Sanity Check (as a redundant safety measure)
-    print("🚀 Stage 4.5: Performing final sanity check...")
-    sanity_check_input = {"contracts": contracts, "architecture": arch, "rules_to_verify": dynamic_rules}
-    sanity_check_result = run_orchestrator("sanity_checker", sanity_check_input)
-    if sanity_check_result.get("status") == "INVALID":
-        errors = "\n".join(sanity_check_result.get("errors_found", ["Unknown architectural error."]))
-        raise RuntimeError(f"❌ Architectural plan failed final sanity check:\n{errors}")
-    print("✅ Architectural plan passed final sanity check.")
+    # --- Stage 4: Iterative Architect-and-Review Loop ---
+    print("🚀 Entering Stage 4: Architectural Design & Review Loop...")
+    arch = None
+    architectural_feedback = None
+    is_valid_architecture = False
 
-    # Stage 5: Enrich the Spec with Details
+    for attempt in range(MAX_ARCHITECT_RETRIES):
+        print(f"  Attempt {attempt + 1}/{MAX_ARCHITECT_RETRIES}...")
+
+        # Prepare input for the Architect, including feedback from previous failures
+        architect_input = {
+            **desc,
+            "files": files,
+            **contracts,
+            "architectural_principles": dynamic_rules,
+            "architectural_feedback": architectural_feedback
+        }
+
+        # Step 4a: Architect proposes a plan
+        arch = run_orchestrator("architect", architect_input)
+        
+        # Step 4b: Sanity Checker reviews the plan
+        sanity_check_input = {
+            "contracts": contracts,
+            "architecture": arch,
+            "rules_to_verify": dynamic_rules
+        }
+        sanity_check_result = run_orchestrator("sanity_checker", sanity_check_input)
+        
+        if sanity_check_result.get("status") == "VALID":
+            print("✅ Architectural plan PASSED validation.")
+            is_valid_architecture = True
+            break  # Exit the loop on success
+        else:
+            errors = sanity_check_result.get("errors_found", ["Unknown architectural error."])
+            # Format errors for the next AI attempt
+            architectural_feedback = "\n".join(f"- {error}" for error in errors)
+            print(f"⚠️ Architectural plan FAILED validation. Feedback for next attempt:\n{architectural_feedback}")
+
+    # If the loop completes without a valid plan, raise a fatal error.
+    if not is_valid_architecture:
+        raise RuntimeError(f"❌ FAILED to produce a valid architectural plan after {MAX_ARCHITECT_RETRIES} attempts.")
+
+    # --- End of Loop ---
+
+    # Stage 5: Enrich the Spec with Details (only runs if architecture is valid)
     print("🚀 Stage 5: Boosting specification details...")
     booster_input = {**desc, "files": files, **contracts, **arch}
     boosted = run_orchestrator("booster", booster_input)
@@ -635,7 +663,6 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     final_spec = verified_output.get("final_spec", final_spec)
     print("✅ Final spec has been verified.")
     
-    # Persist the final spec
     project_state[project] = final_spec
     save_state(project_state)
 
