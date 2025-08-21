@@ -140,40 +140,44 @@ def verify_tests(outputs, spec):
 
 MAX_RETRIES = 10
 _first_review_cache = {}
+# Replace your old run_generator_agent function with this one.
+
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
-    """Generator Agent: produces code strictly based on FILE-SPEC."""
+    """Generator Agent: produces code with authoritative file-spec and contextual full-spec."""
 
     feedback_note = ""
     if review_feedback:
         feedback_note = (
-            "\n\nFEEDBACK TO FIX (apply where critical, ignore style-only notes):\n"
+            "\n\n--- FEEDBACK TO FIX ---\n"
+            "The previous attempt failed. You MUST correct the following errors:\n"
             f"{review_feedback}"
         )
 
     agent_prompt = f"""
-You are coding the file: {file_name}.
+You are an expert software engineer generating code for the file: `{file_name}`.
 
-RULES (strict):
-- Implement ONLY the functions/APIs/entities/errors listed under FILE-SPEC.
-- DO NOT invent functions, classes, or APIs not present in FILE-SPEC.
-- DO NOT omit any required items from FILE-SPEC.
-- FULL SPEC is given for project-wide context only. Ignore anything in FULL SPEC unless it is also in FILE-SPEC.
-- Output ONLY the complete code for {file_name}, with no explanations or comments.
+--- YOUR MISSION ---
+Your goal is to write complete, correct, and production-ready code for this file based *only* on the specifications provided.
 
---- FILE-SPEC (authoritative):
+--- RULES OF ENGAGEMENT (Non-negotiable) ---
+1.  **AUTHORITATIVE `FILE-SPEC`**: Your primary responsibility is to implement every entity, API, function, and protocol listed in the `FILE-SPEC` below. Do NOT omit any required items.
+2.  **CONTEXTUAL `FULL-SPEC`**: Use the `FULL-SPEC` as a **read-only library or master blueprint**. When you need to interact with code from other files (e.g., importing an entity or calling an API), you MUST consult the `FULL-SPEC` to understand the correct signatures, data structures, and endpoints.
+3.  **NO INVENTION**: Do NOT invent functions, classes, or logic not described in the specs. Stick to the plan.
+4.  **OUTPUT CODE ONLY**: Your final output must be ONLY the complete code for `{file_name}`. Do not include explanations, markdown fences, or any other text.
+
+--- `FILE-SPEC` (Your primary work order for `{file_name}`):
 {json.dumps(file_spec, indent=2)}
 
---- FULL SPEC (context only):
+--- `FULL-SPEC` (Read-only context for the entire project):
 {json.dumps(full_spec, indent=2)}
-
 {feedback_note}
 """
 
     try:
         resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # or "gpt-5" if you prefer
-            temperature=0,
-            request_timeout=180,
+            model="gpt-4o",  # Consider a more powerful model for code generation
+            temperature=0.0, # Set to 0 for maximum determinism
+            request_timeout=240,
             messages=[
                 {
                     "role": "system",
@@ -186,8 +190,58 @@ RULES (strict):
         return _strip_code_fences(raw)
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
+# Add these new functions to agents_pipeline.py
+
+def scaffold_project(spec: Dict[str, Any], base_dir: str) -> str:
+    """Creates the directory structure and basic config files before agents run."""
+    project_root = os.path.join(base_dir, spec.get("project", "new_project").replace(" ", "_"))
+    print(f"Scaffolding project in: {project_root}")
+
+    # Create all file paths to ensure directories exist
+    for file_info in spec.get("files", []):
+        file_path = os.path.join(project_root, file_info["file"])
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        # Create empty files to start
+        with open(file_path, "w") as f:
+            pass
+
+    # Example: Create a basic package.json if it's a Node.js project
+    if any(".js" in f["file"] for f in spec.get("files", [])):
+        package_json_path = os.path.join(project_root, "package.json")
+        if os.path.exists(package_json_path):
+            pkg_data = {
+                "name": spec.get("project", "new-project").lower().replace(" ", "-"),
+                "version": "1.0.0",
+                "description": spec.get("description", ""),
+                "main": "server.js",
+                "scripts": {"start": "node server.js"},
+                # TODO: Intelligently add dependencies based on spec
+                "dependencies": {"express": "^4.18.2", "cors": "^2.8.5"}
+            }
+            with open(package_json_path, "w") as f:
+                json.dump(pkg_data, f, indent=2)
+
+    return project_root
 
 
+def run_programmatic_checks(file_name: str, code: str) -> str:
+    """
+    Runs automated checks like linting on the generated code.
+    Returns a string of feedback if errors are found.
+    """
+    feedback = []
+    # This is a placeholder for real checks.
+    # In a real system, you would call a linter like ESLint or Pylint here.
+    # For example:
+    # if file_name.endswith(".js"):
+    #     result = subprocess.run(["eslint", "--stdin"], input=code, text=True, capture_output=True)
+    #     if result.returncode != 0:
+    #         feedback.append(f"ESLint Errors:\n{result.stdout}")
+
+    if "require('mongodb')" in code and not file_name.endswith(("api.js", "db.js", "server.js")):
+         feedback.append("Architectural Error: Frontend file appears to be making a direct database call.")
+
+    return "\n".join(feedback)
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
     """Tester Agent: relaxed review — only blocks on hard errors."""
     if file_name in _first_review_cache:
