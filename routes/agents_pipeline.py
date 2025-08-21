@@ -272,6 +272,40 @@ def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
+def extract_file_spec(file_name: str, final_spec: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extracts the unified spec for a given file.
+    Combines contracts from Contractor + Booster, plus depth notes.
+    """
+
+    # Start with baseline
+    file_spec = {
+        "file": file_name,
+        "functions": [],
+        "apis": [],
+        "entities": [],
+        "protocols": [],
+        "errors": [],
+        "contracts": {},
+        "depth_notes": [],
+    }
+
+    # --- Collect from merged contracts ---
+    contracts = final_spec.get("contracts", {})
+    for key in ["functions", "apis", "entities", "protocols", "errors"]:
+        items = contracts.get(key, [])
+        for item in items:
+            implements = item.get("implements", [])
+            if not implements or file_name in implements:   # include if missing OR matches
+                file_spec[key].append(item)
+
+    # --- Merge booster enrichment ---
+    depth_boost = final_spec.get("__depth_boost", {})
+    if file_name in depth_boost:
+        file_spec["contracts"] = depth_boost[file_name].get("contracts", {})
+        file_spec["depth_notes"] = depth_boost[file_name].get("notes", [])
+
+    return file_spec
 
 def run_agents_for_spec(spec):
     """
