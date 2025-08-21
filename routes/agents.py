@@ -223,6 +223,7 @@ ORCHESTRATOR_STAGES = {
         "8. CONSISTENCY: "
         "   • All names must align perfectly across entities, APIs, functions, protocols, and errors. "
         "   • No mismatches or contradictions allowed. "
+        "9. DYNAMIC PROJECT LAWS: In addition to your universal laws, you MUST strictly adhere to the following principles for THIS SPECIFIC PROJECT: {{ architectural_principles }}. Violating these project-specific laws means instant annihilation."
         "------------------------------------------------------------- "
         "OUTPUT (STRICT JSON ONLY, no markdown, no comments, no explanations): "
         "{ "
@@ -286,7 +287,18 @@ ORCHESTRATOR_STAGES = {
         "\"global_reference_index\": [ { \"file\": \"<file>\", \"functions\": [\"...\"], \"classes\": [\"...\"], \"agents\": [\"...\"] } ] "
         "} "
     ),
-
+        "rule_smith": (
+        "You are an expert Solutions Architect. "
+        "MISSION: Based on the project description, tech stack, and archetype, generate a list of 2-4 fundamental, non-negotiable architectural principles that a successful implementation MUST follow. "
+        "These rules must be specific, verifiable, and critical for the project's success. Do not suggest stylistic preferences. "
+        "RULES: "
+        "1. Analyze the user's request to understand its core nature (e.g., is it a web app, a standalone script, a library?). "
+        "2. Formulate principles that enforce correctness. For a web app, this might be client-server separation. For a CLI tool, it might be argument parsing. For a data script, it might be immutability of the source data. "
+        "3. The principles must be phrased as verifiable statements. "
+        "OUTPUT (STRICT JSON ONLY): { "
+        '"architectural_principles": ["<Critical Rule 1>", "<Critical Rule 2>", "..."] '
+        "}"
+    ),
     "booster": (
         "You are Orchestrator 4 (Detail Booster). "
         "You are the Final Enforcer of Depth — the one who burns away laziness. "
@@ -551,12 +563,17 @@ def merge_specs(desc: Dict[str, Any],
 
 def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     """
-    Runs the full orchestrator pipeline with integrated validation stages.
+    Runs a proactive orchestrator pipeline where architectural rules are generated
+    early and used to guide the entire planning process, preventing errors
+    before they happen.
 
-    This function sequentially calls each specialized orchestrator to build a
-    detailed project specification. It includes a sanity check to validate the
-    architecture early and a final verifier to ensure consistency before
-    passing the spec to the code generation agents.
+    This function follows a sophisticated sequence:
+    1.  Describes the project to understand its core requirements and archetype.
+    2.  Generates a dynamic set of architectural principles tailored to the project.
+    3.  Injects these principles into the subsequent planning stages (Contractor, Architect)
+        to ensure their outputs are architecturally sound from the start.
+    4.  Performs a final sanity check as a backstop before enrichment and verification.
+    5.  Produces a final, coherent, and verified spec ready for code generation.
 
     Args:
         project: The user's initial project description.
@@ -566,46 +583,59 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
         A dictionary containing the final, verified project specification.
 
     Raises:
-        RuntimeError: If the architectural plan fails the sanity check.
+        RuntimeError: If any stage fails, particularly if the generated plan
+                      violates the dynamically created architectural rules.
     """
-    # Stage 0: Describe Project - High-level overview and tech stack selection.
+    # Stage 0: Describe and Classify the Project
     print("🚀 Stage 0: Describing project...")
     desc = run_orchestrator("describer", {"project": project, "clarifications": clarifications})
 
-    # Stage 1: Scope Files - Identify all necessary files for the project.
-    print("🚀 Stage 1: Scoping files...")
+    # Stage 1: Generate Dynamic Architectural Rules
+    print("🚀 Stage 1: Generating architectural principles...")
+    rule_smith_output = run_orchestrator("rule_smith", desc)
+    dynamic_rules = rule_smith_output.get("architectural_principles", [])
+    if not dynamic_rules:
+        raise RuntimeError("❌ RuleSmith failed to generate architectural principles.")
+    print(f"✅ Generated Guiding Principles: {dynamic_rules}")
+
+    # Stage 2: Scope Files
+    print("🚀 Stage 2: Scoping files...")
     files = run_orchestrator("scoper", desc)
 
-    # Stage 2: Define Contracts - Create detailed technical contracts for all APIs, functions, etc.
-    print("🚀 Stage 2: Defining contracts...")
-    contracts = run_orchestrator("contractor", {**desc, "files": files})
+    # Stage 3: Define Contracts WITH Architectural Guidance
+    print("🚀 Stage 3: Defining contracts with architectural guidance...")
+    contractor_input = {**desc, "files": files, "architectural_principles": dynamic_rules}
+    contracts = run_orchestrator("contractor", contractor_input)
 
-    # Stage 3: Design Architecture - Create the dependency graph and overall system design.
-    print("🚀 Stage 3: Designing architecture...")
-    arch = run_orchestrator("architect", {**desc, "files": files, **contracts})
-
-    # Stage 3.5: Sanity Check - Programmatically validate the architect's plan before proceeding.
-    print("🚀 Stage 3.5: Performing sanity check on architecture...")
-    sanity_check_result = run_orchestrator("sanity_checker", {**contracts, **arch})
+    # Stage 4: Design Architecture WITH Architectural Guidance
+    print("🚀 Stage 4: Designing architecture with architectural guidance...")
+    architect_input = {**desc, "files": files, **contracts, "architectural_principles": dynamic_rules}
+    arch = run_orchestrator("architect", architect_input)
+    
+    # Stage 4.5: Final Sanity Check (as a redundant safety measure)
+    print("🚀 Stage 4.5: Performing final sanity check...")
+    sanity_check_input = {"contracts": contracts, "architecture": arch, "rules_to_verify": dynamic_rules}
+    sanity_check_result = run_orchestrator("sanity_checker", sanity_check_input)
     if sanity_check_result.get("status") == "INVALID":
         errors = "\n".join(sanity_check_result.get("errors_found", ["Unknown architectural error."]))
-        raise RuntimeError(f"❌ Architectural plan failed sanity check:\n{errors}")
-    print("✅ Architectural plan passed sanity check.")
+        raise RuntimeError(f"❌ Architectural plan failed final sanity check:\n{errors}")
+    print("✅ Architectural plan passed final sanity check.")
 
-    # Stage 4: Boost Details - Enrich the existing plan with best practices and further detail.
-    print("🚀 Stage 4: Boosting specification details...")
-    boosted = run_orchestrator("booster", {**desc, "files": files, **contracts, **arch})
-
-    # Merge all generated parts into a single, coherent specification object.
+    # Stage 5: Enrich the Spec with Details
+    print("🚀 Stage 5: Boosting specification details...")
+    booster_input = {**desc, "files": files, **contracts, **arch}
+    boosted = run_orchestrator("booster", booster_input)
+    
+    # Merge all components into a single, unified spec
     final_spec = merge_specs(desc, files, contracts, arch, boosted)
 
-    # Stage 5: Final Verification - A final LLM pass to ensure the entire spec is consistent.
-    print("🚀 Stage 5: Verifying final spec...")
+    # Stage 6: Final Verification Pass
+    print("🚀 Stage 6: Verifying final spec...")
     verified_output = run_orchestrator("verifier", {"spec_to_verify": final_spec})
-    final_spec = verified_output.get("final_spec", final_spec)  # Use the verifier's clean output
+    final_spec = verified_output.get("final_spec", final_spec)
     print("✅ Final spec has been verified.")
-
-    # Persist the state of the completed project plan.
+    
+    # Persist the final spec
     project_state[project] = final_spec
     save_state(project_state)
 
@@ -614,7 +644,6 @@ def orchestrator_pipeline(project: str, clarifications: str) -> dict:
     print("="*40 + "\n")
 
     return final_spec
-
 # ===== Orchestrator Route =====
 @agents_bp.route("/orchestrator", methods=["POST", "OPTIONS"])
 @cross_origin(origins=["https://thehustlerbot.com"])
