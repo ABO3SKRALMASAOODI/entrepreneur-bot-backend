@@ -109,8 +109,9 @@ def extract_file_spec(file_name: str, contracts: Dict[str, Any], depth_boost: Di
     def collect(items):
         return [
             item for item in items
-            if not item.get("implements") or file_name in item["implements"]
+            if file_name in (item.get("implements") or [])
         ]
+
 
     # Fill each category
     file_spec["functions"] = collect(contracts.get("functions", []))
@@ -185,19 +186,31 @@ def verify_tests(outputs, spec):
 MAX_RETRIES = 10
 _first_review_cache = {}
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
-    """Generator Agent: produces code with feedback applied (if any)."""
+    """Generator Agent: produces code strictly based on FILE-SPEC."""
+
     feedback_note = ""
     if review_feedback:
         feedback_note = (
             "\n\nFEEDBACK TO FIX (apply where critical, ignore style-only notes):\n"
             f"{review_feedback}"
         )
+
     agent_prompt = f"""
-You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code. Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility). Output ONLY the complete code for {file_name}.
---- FULL SPEC:
-{json.dumps(full_spec, indent=2)}
-FILE-SPEC:
+You are coding the file: {file_name}.
+
+RULES (strict):
+- Implement ONLY the functions/APIs/entities/errors listed under FILE-SPEC.
+- DO NOT invent functions, classes, or APIs not present in FILE-SPEC.
+- DO NOT omit any required items from FILE-SPEC.
+- FULL SPEC is given for project-wide context only. Ignore anything in FULL SPEC unless it is also in FILE-SPEC.
+- Output ONLY the complete code for {file_name}, with no explanations or comments.
+
+--- FILE-SPEC (authoritative):
 {json.dumps(file_spec, indent=2)}
+
+--- FULL SPEC (context only):
+{json.dumps(full_spec, indent=2)}
+
 {feedback_note}
 """
 
@@ -209,12 +222,12 @@ FILE-SPEC:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a perfectionist coding agent focused on correctness and compatibility.",
+                    "content": "You are a perfectionist coding agent focused on correctness, compatibility, and strict adherence to file contracts.",
                 },
                 {"role": "user", "content": agent_prompt}
             ]
         )
-        raw = resp.choices[0].message.content or ""
+        raw = resp.choices[0].message["content"] or ""
         return _strip_code_fences(raw)
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
@@ -286,24 +299,28 @@ def run_agents_for_spec(spec):
            spec.get("contracts", {}),
            spec.get("__depth_boost", {})
         )
+
         review_feedback = None
         approved = False
         attempts = 0
         final_code, final_review = None, None
 
+        # 🔥 Log the agent input ONCE per file (instead of every attempt)
+        print("\n" + "#"*80)
+        print(f"🤖 AGENT INPUT for {file_name} (spec shown once)")
+        print("#"*80)
+        try:
+            print("📂 FILE SPEC:")
+            print(json.dumps(file_spec, indent=2, default=str))
+            print("\n📦 FULL SPEC (trimmed):")
+            print(json.dumps(spec, indent=2, default=str)[:2000] + " ... [TRUNCATED]" )
+        except Exception as e:
+            print(f"⚠️ Could not serialize agent input: {e}")
+        print("#"*80 + "\n")
+
         while not approved and attempts < MAX_RETRIES:
-            # 🔥 LOG CLEAR INPUT TO AGENT
-            print("\n" + "#"*80)
-            print(f"🤖 AGENT INPUT for {file_name} (attempt {attempts+1})")
-            print("#"*80)
-            try:
-                print("📂 FILE SPEC:")
-                print(json.dumps(file_spec, indent=2, default=str))
-                print("\n📦 FULL SPEC (trimmed):")
-                print(json.dumps(spec, indent=2, default=str)[:2000] + " ... [TRUNCATED]" )
-            except Exception as e:
-                print(f"⚠️ Could not serialize agent input: {e}")
-            print("#"*80 + "\n")
+            # Short retry log only
+            print(f"🔄 Attempt {attempts+1} for {file_name} ...")
 
             # === RUN GENERATOR + TESTER ===
             code = run_generator_agent(file_name, file_spec, spec, review_feedback)
