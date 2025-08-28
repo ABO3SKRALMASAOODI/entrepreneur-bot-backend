@@ -11,6 +11,7 @@ import openai
 agents_pipeline_bp = Blueprint("agents_pipeline", __name__)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+
 # --- helpers for clean agent outputs ---
 def _detect_language_from_filename(filename: str) -> str:
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
@@ -29,109 +30,104 @@ def _detect_language_from_filename(filename: str) -> str:
         "yaml": "yaml",
     }.get(ext, "text")
 
+
 def _strip_code_fences(text: str) -> str:
     """Remove leading/trailing triple-backtick fences if the model included them."""
     if text is None:
         return ""
     s = text.strip()
-    # Remove starting lang or 
+
+    # Remove starting ```lang or ```
     if s.startswith("```"):
         s = s.split("\n", 1)
         s = s[1] if len(s) > 1 else ""
-    # Remove trailing
+
+    # Remove trailing ```
     if s.endswith("```"):
         s = s[: -3].rstrip()
+
     return s
+
 
 # =====================================================
 # 1. Utility Functions
 # =====================================================
+
 def get_agent_files(spec):
-    """
-    Collect all unique file names from the orchestrator spec.
-    Compatible with new pipeline JSON structure.
-    """
+    """Extract all unique file names from orchestrator spec."""
     files = set()
-
-    # === New spec style ===
-    for f in spec.get("files", []):
-        if "file" in f:
-            files.add(f["file"])
-
-    # Global reference index (backup source of file names)
-    for ref in spec.get("global_reference_index", []):
-        if "file" in ref:
-            files.add(ref["file"])
-
-    # Depth boost sometimes carries extra files
-    for fname in spec.get("__depth_boost", {}).keys():
-        files.add(fname)
-
-    # Legacy support (if old orchestrator spec sneaks in)
     for f in spec.get("interface_stub_files", []):
         if "file" in f:
             files.add(f["file"])
-
+    for agent in spec.get("agent_blueprint", []):
+        desc = agent.get("description", "")
+        if "implementing" in desc:
+            part = desc.split("implementing", 1)[1].strip().split(" ")[0]
+            if "." in part:
+                files.add(part)
     for func in spec.get("function_contract_manifest", {}).get("functions", []):
         if "file" in func:
             files.add(func["file"])
-
     for dep in spec.get("dependency_graph", []):
         if "file" in dep:
             files.add(dep["file"])
         for d in dep.get("dependencies", []):
             files.add(d)
-
+    for ref in spec.get("global_reference_index", []):
+        if "file" in ref:
+            files.add(ref["file"])
     return sorted(files)
 
+
 def extract_file_spec(spec, file_name):
-    """
-    Build the specification for a single file so the agent knows exactly what to implement.
-    Compatible with new orchestrator pipeline.
-    """
+    """Extract only the parts of the spec relevant to a single file."""
     file_spec = {
-        "file": file_name,
+        "file_name": file_name,
         "functions": [],
-        "apis": [],
+        "db_tables": [],
+        "api_endpoints": [],
         "protocols": [],
-        "entities": [],
-        "errors": [],
-        "contracts": {},
+        "shared_schemas": spec.get("shared_schemas"),
+        "config_and_constants": None,
+        "compatibility_notes": []
     }
 
-    contracts = spec.get("contracts", {})
-
-    # === Functions ===
-    for func in contracts.get("functions", []):
-        if file_name in func.get("implements", []):
+    for func in spec.get("function_contract_manifest", {}).get("functions", []):
+        if func.get("file") == file_name:
             file_spec["functions"].append(func)
 
-    # === APIs ===
-    for api in contracts.get("apis", []):
-        if file_name in api.get("implements", []):
-            file_spec["apis"].append(api)
+    for table in spec.get("db_schema", []):
+        if "db" in file_name.lower() or any(
+            table["table"] in json.dumps(func) for func in file_spec["functions"]
+        ):
+            if table not in file_spec["db_tables"]:
+                file_spec["db_tables"].append(table)
 
-    # === Protocols ===
-    for proto in contracts.get("protocols", []):
-        if file_name in proto.get("implements", []):
+    for api in spec.get("api_contracts", []):
+        for func in file_spec["functions"]:
+            if func.get("name") in json.dumps(api):
+                file_spec["api_endpoints"].append(api)
+
+    for proto in spec.get("inter_agent_protocols", []):
+        if file_name in json.dumps(proto):
             file_spec["protocols"].append(proto)
+        else:
+            for func in file_spec["functions"]:
+                if func.get("name") in json.dumps(proto):
+                    file_spec["protocols"].append(proto)
+                    break
 
-    # === Entities ===
-    for ent in contracts.get("entities", []):
-        if file_name in ent.get("implements", []):
-            file_spec["entities"].append(ent)
+    for f in spec.get("interface_stub_files", []):
+        if f["file"] == "config.py":
+            file_spec["config_and_constants"] = f
 
-    # === Errors ===
-    for err in contracts.get("errors", []):
-        if file_name in err.get("implements", []):
-            file_spec["errors"].append(err)
+    depth_info = spec.get("__depth_boost", {}).get(file_name, {})
+    file_spec["compatibility_notes"].extend(depth_info.get("notes", []))
+    file_spec["db_tables"].extend(depth_info.get("db", []))
+    file_spec["api_endpoints"].extend(depth_info.get("api", []))
+    file_spec["protocols"].extend(depth_info.get("protocols", []))
 
-    # === Depth boost notes/contracts ===
-    if "__depth_boost" in spec and file_name in spec["__depth_boost"]:
-        file_spec["depth_notes"] = spec["__depth_boost"][file_name].get("notes", [])
-        file_spec["contracts"] = spec["__depth_boost"][file_name].get("contracts", {})
-
-    return file_spec  # ✅ make sure this is inside the function
+    return file_spec
 
 
 def verify_imports(outputs):
@@ -154,8 +150,8 @@ def verify_imports(outputs):
                 raise RuntimeError(f"Import failed for {output['file']}: {e}")
     finally:
         shutil.rmtree(tmp_dir)
-
     return outputs
+
 
 def verify_tests(outputs, spec):
     """Run orchestrator-provided integration tests."""
@@ -178,8 +174,8 @@ def verify_tests(outputs, spec):
             raise RuntimeError(f"Integration tests failed:\n{proc.stdout}\n{proc.stderr}")
     finally:
         shutil.rmtree(tmp_dir)
-
     return outputs
+
 
 # =====================================================
 # 2. Generator & Tester Agents (Relaxed Assessment)
@@ -187,6 +183,7 @@ def verify_tests(outputs, spec):
 
 MAX_RETRIES = 10
 _first_review_cache = {}
+
 
 def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
     """Generator Agent: produces code with feedback applied (if any)."""
@@ -198,15 +195,14 @@ def run_generator_agent(file_name, file_spec, full_spec, review_feedback=None):
         )
 
     agent_prompt = f"""
-You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code.
-Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility).
-Output ONLY the complete code for {file_name}.
---- FULL SPEC:
-{json.dumps(full_spec, indent=2)}
-FILE-SPEC:
-{json.dumps(file_spec, indent=2)}
-{feedback_note}
-"""
+    You are coding {file_name}. Follow the spec exactly and produce fully working, production-ready code.
+    Ignore nitpicky style/docstring issues if unclear, but fix critical errors (syntax, imports, compatibility).
+    Output ONLY the complete code for {file_name}.
+    ---
+    FULL SPEC: {json.dumps(full_spec, indent=2)}
+    FILE-SPEC: {json.dumps(file_spec, indent=2)}
+    {feedback_note}
+    """
 
     try:
         resp = openai.ChatCompletion.create(
@@ -216,7 +212,7 @@ FILE-SPEC:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a perfectionist coding agent focused on correctness and compatibility.",
+                    "content": "You are a perfectionist coding agent focused on correctness and compatibility."
                 },
                 {"role": "user", "content": agent_prompt}
             ]
@@ -226,22 +222,21 @@ FILE-SPEC:
     except Exception as e:
         raise RuntimeError(f"Generator agent failed for {file_name}: {e}")
 
+
 def run_tester_agent(file_name, file_spec, full_spec, generated_code):
     """Tester Agent: relaxed review — only blocks on hard errors."""
     if file_name in _first_review_cache:
         return _first_review_cache[file_name]
 
     tester_prompt = f"""
-Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests, missing required functions.
-Ignore minor style/docstring/naming issues (just note them briefly if any).
-If code is usable and correct, output ONLY: ✅ APPROVED
---- FULL SPEC:
-{json.dumps(full_spec, indent=2)}
-FILE-SPEC:
-{json.dumps(file_spec, indent=2)}
-CODE:
-{generated_code}
-"""
+    Review {file_name}. List only CRITICAL blocking issues: syntax errors, failed imports, broken tests,
+    missing required functions. Ignore minor style/docstring/naming issues (just note them briefly if any).
+    If code is usable and correct, output ONLY: ✅ APPROVED
+    ---
+    FULL SPEC: {json.dumps(full_spec, indent=2)}
+    FILE-SPEC: {json.dumps(file_spec, indent=2)}
+    CODE: {generated_code}
+    """
 
     resp = openai.ChatCompletion.create(
         model="gpt-4o-mini",
@@ -252,15 +247,16 @@ CODE:
             {"role": "user", "content": tester_prompt}
         ]
     )
-
     review_text = resp.choices[0].message["content"]
     _first_review_cache[file_name] = review_text
     return review_text
+
 
 def is_hard_failure(review: str) -> bool:
     """Check if review indicates a real blocking failure."""
     critical_terms = ["SyntaxError", "ImportError", "integration tests failed", "missing required"]
     return any(term.lower() in review.lower() for term in critical_terms)
+
 
 def run_agents_for_spec(spec):
     """Runs generator + tester loop for each file until approved or retries exhausted."""
@@ -302,7 +298,7 @@ def run_agents_for_spec(spec):
             else:
                 print(f"❌ {file_name} failed review (Attempt {attempts+1}):\n{review}")
                 review_feedback = review
-                attempts += 1
+            attempts += 1
 
         if not approved:
             raise RuntimeError(f"File {file_name} could not be approved after {attempts} attempts.")
@@ -319,6 +315,8 @@ def run_agents_for_spec(spec):
         print(f"⚠️ Tests failed but continuing: {e}")
 
     return outputs
+
+
 # =====================================================
 # 4. Flask Endpoint
 # =====================================================
@@ -329,6 +327,7 @@ def run_agents_endpoint():
     spec = body.get("spec")
     if not spec:
         return jsonify({"error": "Missing spec"}), 400
+
     try:
         agent_outputs = run_agents_for_spec(spec)
         return jsonify({"role": "assistant", "agents_output": agent_outputs})
